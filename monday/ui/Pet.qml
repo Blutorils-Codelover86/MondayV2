@@ -90,7 +90,9 @@ Window {
         xhr.send(method === "POST" ? JSON.stringify(payload || {}) : "")
     }
     function submit(command) {
-        if (!command.trim() || busy) return
+        if (!command.trim()) return
+        if (/^stop(?: the current task| current task)?[!.]?$/i.test(command.trim())) { input.text = ""; request("POST", "/cancel", {}); return }
+        if (busy) return
         localError = ""
         input.text = ""
         expanded = true
@@ -188,6 +190,26 @@ Window {
                     background: Item {}
                 }
             }
+            Text {
+                objectName: "taskStatus"
+                Layout.fillWidth: true
+                visible: !!root.state.status
+                text: "Task: " + (root.state.status || "IDLE")
+                color: root.accent; font.pixelSize: 11; textFormat: Text.PlainText
+            }
+            ScrollView {
+                objectName: "taskSteps"
+                visible: !!root.state.steps && root.state.steps.length > 0
+                Layout.fillWidth: true; Layout.preferredHeight: visible ? Math.min(84, stepsText.implicitHeight) : 0
+                contentWidth: availableWidth
+                TextArea {
+                    id: stepsText
+                    width: parent.width
+                    text: (root.state.steps || []).map(function(step, i) { return (i + 1) + ". " + step.tool + " — " + step.status }).join("\n")
+                    readOnly: true; selectByMouse: true; wrapMode: TextEdit.Wrap; textFormat: TextEdit.PlainText
+                    color: "#aebed3"; font.pixelSize: 11; padding: 0; background: Item {}
+                }
+            }
             ScrollView {
                 visible: !!root.state.approval
                 Layout.fillWidth: true; Layout.preferredHeight: visible ? 92 : 0
@@ -227,7 +249,7 @@ Window {
                     placeholderText: "Tell me what you need…"
                     color: "#edf3ff"; placeholderTextColor: "#758299"
                     font.pixelSize: 13; background: Item {}
-                    enabled: !root.busy
+                    enabled: true
                     maximumLength: 4000
                     onAccepted: root.submit(text)
                 }
@@ -235,8 +257,8 @@ Window {
                     id: send
                     objectName: "sendButton"
                     anchors { right: parent.right; verticalCenter: parent.verticalCenter; rightMargin: 4 }
-                    text: root.busy ? "■" : "↑"
-                    implicitWidth: 34; implicitHeight: 34
+                    text: root.busy ? "STOP" : "↑"
+                    implicitWidth: root.busy ? 54 : 34; implicitHeight: 34
                     palette.buttonText: root.accent
                     onClicked: root.busy ? root.request("POST", "/cancel", {}) : root.submit(input.text)
                     ToolTip.visible: hovered; ToolTip.text: root.busy ? "Stop this task" : "Send command"

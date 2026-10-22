@@ -39,7 +39,7 @@ and GPU. Responses and approvals are rendered as plain text.
 You can also type `hi`, `who are you?`, `hi, who are you?`, `what does that mean?`, or
 `why did it fail?`. The pet retains its last task across worker instances; greetings do not
 erase that context. Questions about MONDAY do not search the web, and follow-ups never retry
-an action or grant approval. New factual topics still require actual source evidence.
+an action or grant approval. Ordinary questions can use local Gemma with bounded conversation history and no tools. Explicit research still requires source evidence. The task panel shows each action and verification outcome; STOP also works while awaiting local inference.
 
 ## More useful commands
 
@@ -68,7 +68,8 @@ interfaces are available; those paths are not claimed live-tested here.
 
 ## Proactive behavior
 
-While the pet is on, a separate read-only watcher checks RAM, root-disk usage and battery
+Health hints are **off by default**. Enable them with the circle button in the header.
+While enabled, a separate read-only watcher checks RAM, root-disk usage and battery
 once every 30 seconds. Two consecutive samples are needed before warning about RAM above
 90%, disk above 95%, or unplugged battery at or below 15%. Warnings are suppressed for
 10 minutes after display. The circle button in the header pauses/resumes these hints.

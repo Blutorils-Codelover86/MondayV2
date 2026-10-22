@@ -44,7 +44,11 @@ def test_own_test_child_termination_is_verified(approved):
     p=subprocess.Popen([sys.executable,'-c','import time;time.sleep(30)'])
     try:
         import psutil
-        if psutil.Process(p.pid).ppid()!=os.getpid():
+        try: parent=psutil.Process(p.pid).ppid()
+        except psutil.NoSuchProcess:
+            if p.poll() is None: pytest.skip('Virtualized process table does not expose the live owned child; native integration required')
+            raise
+        if parent!=os.getpid():
             pytest.skip('Virtualized process table does not expose this owned child; native integration required')
         inspected=approved.gateway.perform(Action('process.inspect',{'pid':p.pid})); assert inspected.ok
         o=approved.gateway.perform(Action('process.terminate',{'pid':p.pid,'create_time':inspected.data['create_time']}))
@@ -115,7 +119,7 @@ def test_package_version_verification(cfg,monkeypatch):
 def test_hyprland_window_id_inventory(cfg,monkeypatch):
     d=DesktopController(Runtime(cfg)); monkeypatch.setattr(d,'capabilities',lambda:{'backend':'hyprland'})
     monkeypatch.setattr(d,'windows',lambda:{'windows':[{'address':'0x123'}],'backend':'hyprland'})
-    monkeypatch.setattr(d.runtime,'run',lambda argv: {'exit_code':0,'stdout':'ok','stderr':''})
+    monkeypatch.setattr(d.runtime,'run',lambda argv,**kw: {'exit_code':0,'stdout':'ok','stderr':''})
     assert d.window('0x123','focus')['window_id']=='0x123'
     with pytest.raises(ValueError): d.window('0x123; exec rm','focus')
 
