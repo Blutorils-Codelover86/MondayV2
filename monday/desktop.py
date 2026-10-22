@@ -33,7 +33,14 @@ class DesktopController:
     def resolve(self,app):
         apps=self.discover()['applications']
         exact=[a for a in apps if app.casefold() in (a['id'].casefold(),a['name'].casefold(),Path(a['id']).stem.casefold())]
-        candidates=exact or [a for a in apps if app.casefold() in a['name'].casefold() or app.casefold() in a['id'].casefold()]
+        normalize=lambda text:re.sub(r'[^a-z0-9]','',text.casefold())
+        names={'visualstudio':{'visualstudiocode','code','codeoss','vscodium'},
+               'vscode':{'visualstudiocode','code','codeoss','vscodium'},
+               'filemanager':{'dolphin','nautilus','thunar'}}
+        wanted=normalize(app)
+        if not wanted and not exact: raise ValueError('Name an installed application')
+        aliases=[a for a in apps if normalize(a['name']) in names.get(wanted,set()) or normalize(Path(a['id']).stem) in names.get(wanted,set())]
+        candidates=exact or aliases or [a for a in apps if wanted in normalize(a['name']) or wanted in normalize(a['id'])]
         if len(candidates)!=1: raise ValueError('Application not found' if not candidates else 'Application is ambiguous: '+', '.join(a['name'] for a in candidates[:6]))
         return candidates[0]
     def argv(self,entry,file=None):
@@ -126,6 +133,38 @@ class DesktopController:
         return {'workspace':workspace,'previous_workspace':before.get('id')}
     def verify_workspace(self,args,result):
         return self.hypr_json('activeworkspace').get('id')==args['workspace']
+    def configure_window(self,window_id,operation,**values):
+        if not re.fullmatch(r'0x[0-9a-fA-F]+',window_id): raise ValueError('Invalid Hyprland window address')
+        inventory=self.windows()
+        if inventory['backend']!='hyprland': raise NotImplementedError('Window layout control requires Hyprland IPC')
+        window=next((w for w in inventory['windows'] if w.get('address')==window_id),None)
+        if window is None: raise ValueError('Window is not in observed inventory')
+        if window.get('title')=='MONDAY companion': raise PermissionError('Companion layout is managed by its own placement controller')
+        if operation=='workspace':
+            workspace=values['workspace']
+            if type(workspace) is not int or not 1<=workspace<=999: raise ValueError('Workspace must be an integer from 1 to 999')
+            dispatcher='movetoworkspacesilent'; parameter=f'{workspace},address:{window_id}'
+        elif operation=='floating':
+            floating=values['floating']
+            if type(floating) is not bool: raise ValueError('Floating must be a boolean')
+            dispatcher='setfloating' if floating else 'settiled'; parameter='address:'+window_id
+        elif operation=='size':
+            width,height=values['width'],values['height']
+            if type(width) is not int or type(height) is not int or not (100<=width<=7680 and 100<=height<=4320):
+                raise ValueError('Use a size within 100–7680 by 100–4320 pixels')
+            if window.get('floating') is not True: raise PermissionError('Float the named window before resizing it')
+            dispatcher='resizewindowpixel'; parameter=f'exact {width} {height},address:{window_id}'
+        else: raise ValueError('Unsupported layout operation')
+        result=self.runtime.run(['hyprctl','dispatch',dispatcher,parameter],timeout=5)
+        if result['exit_code']: raise RuntimeError(result['stderr'] or 'Hyprland dispatch failed')
+        return {'window_id':window_id,'operation':operation,**values}
+    def verify_layout(self,args,result):
+        window=next((w for w in self.windows()['windows'] if w.get('address')==args['window_id']),None)
+        if window is None: return False
+        if result['operation']=='workspace': return window.get('workspace',{}).get('id')==args['workspace']
+        if result['operation']=='floating': return window.get('floating') is args['floating']
+        if result['operation']=='size': return window.get('size')==[args['width'],args['height']]
+        return False
     def open(self,target):
         # xdg-open has no browser observation API: never call navigation verified from exit alone.
         r=self.runtime.run(['xdg-open',target],timeout=15)
@@ -135,6 +174,12 @@ class DesktopController:
     def notify(self,text): return self.runtime.run(['notify-send','MONDAY',text])
     def register(self,r):
         s=lambda **kw:{k:{'type':v} for k,v in kw.items()}
+        r.register(Tool('desktop.move_window_to_workspace','Move a named observed window to a numbered workspace',s(window_id=str,workspace=int),Risk.LOW,
+                        lambda window_id,workspace:self.configure_window(window_id,'workspace',workspace=workspace),self.verify_layout))
+        r.register(Tool('desktop.set_floating','Float or tile a named observed window',s(window_id=str,floating=bool),Risk.LOW,
+                        lambda window_id,floating:self.configure_window(window_id,'floating',floating=floating),self.verify_layout))
+        r.register(Tool('desktop.resize_window','Resize a named observed floating window',s(window_id=str,width=int,height=int),Risk.LOW,
+                        lambda window_id,width,height:self.configure_window(window_id,'size',width=width,height=height),self.verify_layout))
         r.register(Tool('desktop.list_windows','List compositor windows on request',{},Risk.READ_ONLY,self.windows))
         r.register(Tool('desktop.get_active_window','Inspect only the current Hyprland window metadata',{},Risk.READ_ONLY,self.active_window))
         r.register(Tool('desktop.focus_window','Focus an observed window',s(window_id=str),Risk.LOW,
@@ -155,6 +200,7 @@ class DesktopController:
                         lambda path:self.open(path),lambda a,d:False))
         r.register(Tool('desktop.clipboard_read','Read Wayland clipboard',{},Risk.READ_ONLY,self.clipboard_read))
         r.register(Tool('desktop.clipboard_write','Set Wayland clipboard',s(text=str),Risk.MEDIUM,self.clipboard_write,
-                        lambda a,d:d['exit_code']==0 and self.clipboard_read()['stdout']==a['text']))
+                        lambda a,d:d['exit_code']==0 and self.clipboard_read()['stdout']==a['text'],
+                        lambda a:f"Replace clipboard with {len(a['text'])} characters: {a['text'][:240]!r}"))
         r.register(Tool('desktop.notify','Request desktop notification',s(text=str),Risk.LOW,self.notify,
                         lambda a,d:d['exit_code']==0))

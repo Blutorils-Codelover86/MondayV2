@@ -1,5 +1,8 @@
 # Local language and desktop gateway
 
+This is the initial PR #2 implementation report. Current behavior supersedes the Gemma
+preflight gate and JSON chat described below; see [web/desktop repair](WEB_DESKTOP_REPAIR.md).
+
 ## Inspected baseline and root cause
 
 This change is for **MondayV2**, based on published review head

@@ -5,7 +5,7 @@ from .models import Action, Decision, TaskState, Risk
 from .runtime import Cancelled
 from .research import rank_candidates, best_excerpt, documentation_response, is_documentation
 from .conversation import classify, followup, outcome
-from .companion import native_intent, LanguageSession, explain
+from .companion import native_intent, LanguageSession, explain, public_question
 
 class Interpreter:
     def __init__(self,cfg,registry,reasoner=None): self.cfg,self.registry,self.reasoner=cfg,registry,reasoner
@@ -27,6 +27,19 @@ class Interpreter:
         if native: return {'kind':'action','action':Action(*native)}
         polite=re.fullmatch(r'(?:please |(?:can|could|would) you )(open|launch|focus|switch|find) (.+)',s,re.I)
         if polite: return self.understand(polite[1]+' '+polite[2])
+        if re.fullmatch(r'(?:read|show) (?:the )?clipboard[.!]?',s,re.I):
+            return {'kind':'action','action':Action('desktop.clipboard_read')}
+        if low.startswith('set clipboard to '):
+            try:
+                text=json.loads(s[len('set clipboard to '):])
+                if not isinstance(text,str): raise ValueError('Expected quoted text')
+                return {'kind':'action','action':Action('desktop.clipboard_write',{'text':text})}
+            except (ValueError,TypeError): return {'kind':'question','question':'Use set clipboard to "your text"; I will preview it for approval.'}
+        direct=re.search(r'https?://[^\s<>]+',s)
+        if direct and re.match(r'(?:what |explain |read |summarize |summarise |tell me )',low):
+            return {'kind':'research','query':s,'url':direct[0].rstrip('.,?!')}
+        if re.search(r'\b(?:latest|today|current|news|recent|this week|right now)\b',low) and public_question(s) and re.match(r'(?:what |who |how |why |tell me |explain |find |search )',low):
+            return {'kind':'research','query':s,'subjects':[s]}
         # Local chat answers do not obtain a tool registry or execute inferred actions.
         if self.reasoner and re.match(r'^(?:what |who |how |why |tell me about |explain )',low) and not re.match(r"why (?:isn't|is not) .+ building",low) and not is_documentation(s) and not re.search(r'\b(?:difference|compare|differentiate)\b',low):
             if re.search(r'\b(?:it|that|this)\b',low): return {'kind':'followup'}
@@ -45,8 +58,18 @@ class Interpreter:
             if target.startswith(('https://','http://')): return {'kind':'action','action':Action('browser.open',{'url':target})}
             if target.startswith(('/','~','.')): return {'kind':'action','action':Action('desktop.open_file',{'path':str(Path(target).expanduser().absolute())})}
             target=target.rstrip('.?! ')
+            sites={'youtube':'https://www.youtube.com','google':'https://www.google.com','github':'https://github.com'}
+            if target.casefold() in sites: return {'kind':'action','action':Action('browser.open',{'url':sites[target.casefold()]})}
+            if re.fullmatch(r'(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}(?:/[^\s]*)?',target):
+                return {'kind':'action','action':Action('browser.open',{'url':'https://'+target})}
             if self.reasoner: return {'kind':'action','action':Action('desktop.launch_app',{'app':target})}
             return {'kind':'launch','app':target}
+        m=re.fullmatch(r'move (?:window )?(.+?) to workspace (\d{1,3})[.!]?',s,re.I)
+        if m: return {'kind':'window','operation':'move_window_to_workspace','target':m[1],'arguments':{'workspace':int(m[2])}}
+        m=re.fullmatch(r'(float|tile) (?:window )?(.+?)[.!]?',s,re.I)
+        if m: return {'kind':'window','operation':'set_floating','target':m[2],'arguments':{'floating':m[1].casefold()=='float'}}
+        m=re.fullmatch(r'resize (?:window )?(.+?) to (\d{2,4})[x× ](\d{2,4})[.!]?',s,re.I)
+        if m: return {'kind':'window','operation':'resize_window','target':m[1],'arguments':{'width':int(m[2]),'height':int(m[3])}}
         m=re.fullmatch(r'(focus|close) (?:window )?(.+)',s,re.I)
         if m and not re.fullmatch(r'close (?:process )?\d+',s,re.I):
             return {'kind':'window','operation':m[1].lower(),'target':m[2]}
@@ -176,8 +199,8 @@ class DecisionEngine:
                 matches=[w for w in windows if target in w.get('title','').casefold() or target in w.get('class','').casefold()]
             if len(matches)!=1: return done('Which window? '+('Several match; specify a title or observed ID.' if matches else 'No observed window matches that target.'),'NEEDS_CLARIFICATION')
             tool='desktop.'+ctx['operation']
-            if not state.latest(tool): return act(tool,{'window_id':str(matches[0].get('address',matches[0].get('id')))})
-            return done('Window '+ctx['operation']+' was verified for '+ctx['target']+'.')
+            if not state.latest(tool): return act(tool,{'window_id':str(matches[0].get('address',matches[0].get('id'))),**ctx.get('arguments',{})})
+            return done(self.describe(state.latest(tool)) if ctx.get('arguments') else 'Window '+ctx['operation']+' was verified for '+ctx['target']+'.')
         if kind=='service':
             if not state.latest('service.inspect'): return act('service.inspect',{'name':ctx['name']})
             if ctx['restart'] and not state.latest('service.restart'): return act('service.restart',{'name':ctx['name']},'Restart only the named service after approval')
@@ -271,6 +294,11 @@ class DecisionEngine:
 
     def describe(self,o):
         d=o.data; t=o.tool
+        if t in ('desktop.move_window_to_workspace','desktop.set_floating','desktop.resize_window'):
+            detail=(f"workspace {d['workspace']}" if 'workspace' in d else ('floating' if d['floating'] else 'tiled') if 'floating' in d else f"{d['width']}×{d['height']} pixels")
+            return f"Window {d['window_id']}: {detail}; compositor read-back verified the change."
+        if t=='desktop.clipboard_write': return 'Clipboard content was updated and read back to verify the requested text.'
+        if t=='desktop.clipboard_read': return 'Clipboard: '+d['stdout'] if d['stdout'] else 'Clipboard is empty.'
         if t=='desktop.get_active_window':
             w=d['window']; return ('Active window: '+(w.get('title') or w.get('class') or 'unnamed')+' ('+w.get('class','unknown app')+').') if w else 'No active window was reported by Hyprland.'
         if t=='desktop.switch_workspace': return f"Switched to workspace {d['workspace']}; the active workspace was verified."
@@ -349,6 +377,10 @@ class Agent:
                         try: response=self.language.answer(self.engine.reasoner,objective)
                         except Cancelled: raise
                         except Exception: response=None
+                    if not response and self.engine.cfg.web_fallback and not self.gateway.dry_run and public_question(objective):
+                        state.context={'kind':'research','query':objective,'subjects':[objective],'language_fallback':True}
+                        if self.stage: self.stage('Looking up public sources for your question')
+                        continue
                     d=Decision(objective,state.snapshot(),None,'Text-only local language response','','No execution',
                         response=('Local answer (not externally verified): '+response) if response else 'Local language model unavailable or returned an invalid answer. I cannot answer that reliably; try a specific question or an explicit search.',
                         status='PARTIAL' if not response else 'SUCCESS')
@@ -364,14 +396,11 @@ class Agent:
                     state.status,state.response='FAILED','Decision repeated without progress.'; break
                 # Models can select only this already validated, user-requested candidate.
                 # Confidence never changes permissions. Unavailable Laya uses the explicit recipe.
-                if self.engine.reasoner and state.context.get('kind')=='action' and not state.observations and not self.gateway.dry_run and not objective.lstrip().startswith('tool '):
-                    if self.stage: self.stage('Interpreting locally with '+self.engine.cfg.ollama_model)
-                    try: proposal=self.engine.reasoner.interpret(objective,[t for t in self.engine.registry.describe() if t['name']==d.next_action.tool])
-                    except Cancelled: raise
-                    except Exception: proposal=None
-                    self.gateway.runtime.check()
-                    if proposal is not None and (not isinstance(proposal,dict) or proposal.get('tool')!=d.next_action.tool or proposal.get('arguments')!=d.next_action.arguments):
-                        state.status,state.response='NEEDS_CLARIFICATION','The local model interpretation did not match the explicit action. Please name the exact action and target; nothing ran.'; break
+                if state.context.get('kind')=='action' and not state.observations:
+                    # Complete user commands do not need a model to repeat their arguments.
+                    # Unknown/ambiguous language remains a separate clarification path.
+                    self.audit.emit('language_interpretation',source='explicit user request',model_used=False,
+                                    tool=d.next_action.tool)
                 if self.engine.provider and not self.gateway.dry_run:
                     if self.stage: self.stage('Selecting the structured decision with Laya')
                     candidate=json.dumps({'tool':d.next_action.tool,'arguments':d.next_action.arguments})

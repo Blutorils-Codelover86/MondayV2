@@ -203,6 +203,21 @@ Ollama transport is restricted to loopback, ignores environment HTTP proxies and
 No live Laya or Gemma inference was available in the cloud validation environment.
 See [local language and desktop gateway](docs/LOCAL_COMPANION.md) for architecture, configuration, verification and limitations.
 
+## Web access and restored desktop commands
+
+Clear desktop commands no longer wait for Gemma to restate identical arguments. General
+questions use plain local chat, with automatic cited web lookup if the answer is unusable;
+current questions and explicit URLs go directly to research. Public HTTP(S) access is enabled
+across domains. Use `MONDAY_WEB_FALLBACK=0` to disable automatic fallback.
+
+Try `open visual studio`, `open youtube`, `move window Code to workspace 2`,
+`float window Code`, or `resize window Code to 1000x700`. `set clipboard to "a note"`
+previews a clipboard write for approval. Native layout results require compositor read-back;
+browser handoffs do not claim verified navigation.
+
+See [web and desktop repair](docs/WEB_DESKTOP_REPAIR.md) for exact scope, evidence and
+limitations. General in-app clicking/typing is not implemented by these native window APIs.
+
 ## Tests and measurements
 
 ```bash
