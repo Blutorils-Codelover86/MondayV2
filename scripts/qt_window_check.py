@@ -95,7 +95,7 @@ def main():
                 wait(lambda:bool(service.history))
                 wait(lambda:'MONDAY' in item('responseText').property('text'))
                 assert service.history[-1]['objective']=='hi'
-                for decision,button in [('denied','denyButton'),('approved','approveButton'),('cancelled','sendButton')]:
+                for decision,button in [('denied','denyButton'),('approved','approveButton'),('cancelled','sendButton'),('stopped-text','commandInput')]:
                     target=workspace/decision
                     submit('tool fs.create '+json.dumps({'path':str(target),'content':'owned fixture'}))
                     wait(lambda:service.phase=='approval')
@@ -103,10 +103,16 @@ def main():
                     wait(lambda:item(button).isVisible())
                     assert window.property('expression')=='approval'
                     assert not item('collapseButton').property('enabled')
-                    click(item(button))
+                    if decision=='stopped-text':
+                        click(item('commandInput'));item('commandInput').setProperty('text','Stop the current task.')
+                        QTest.keyClick(window,Qt.Key_Return)
+                    else: click(item(button))
                     wait(lambda:service.phase in ('done','error'))
                     wait(lambda:not window.property('busy'))
                     assert target.exists()==(decision=='approved')
+                    assert service.snapshot()['steps'][-1]['status']==('VERIFIED' if decision=='approved' else 'CANCELLED')
+                    assert item('taskSteps').isVisible()
+                    assert item('taskStatus').property('text')=='Task: '+service.task_status
                 capture('result')
             else:
                 item('pollTimer').setProperty('running',False)

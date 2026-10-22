@@ -78,7 +78,7 @@ class DesktopController:
         backend=self.capabilities()['backend']
         if backend=='hyprland':
             import json
-            r=self.runtime.run(['hyprctl','-j','clients'])
+            r=self.runtime.run(['hyprctl','-j','clients'],timeout=5)
             if r['exit_code']: raise RuntimeError(r['stderr'])
             return {'windows':json.loads(r['stdout']),'backend':backend}
         if backend=='kwin-kdotool':
@@ -91,9 +91,10 @@ class DesktopController:
         before=self.windows(); backend=before['backend']
         ids=[str(x.get('address',x.get('id'))) for x in before['windows']]
         if window_id not in ids: raise ValueError('Window is not in observed inventory')
+        if backend=='hyprland' and not re.fullmatch(r'0x[0-9a-fA-F]+',window_id): raise ValueError('Invalid Hyprland window address')
         if backend=='hyprland': argv=['hyprctl','dispatch',operation+'window','address:'+window_id]
         else: argv=['kdotool','windowactivate' if operation=='focus' else 'windowclose',window_id]
-        r=self.runtime.run(argv)
+        r=self.runtime.run(argv,timeout=5)
         if r['exit_code']: raise RuntimeError(r['stderr'])
         return {'window_id':window_id,'operation':operation,'backend':backend}
     def verify_window(self,args,result):
@@ -101,9 +102,30 @@ class DesktopController:
             return not any(str(w.get('address',w.get('id')))==args['window_id'] for w in self.windows()['windows'])
         if result['backend']=='hyprland':
             import json
-            r=self.runtime.run(['hyprctl','-j','activewindow'])
+            r=self.runtime.run(['hyprctl','-j','activewindow'],timeout=5)
             return r['exit_code']==0 and json.loads(r['stdout']).get('address')==args['window_id']
         r=self.runtime.run(['kdotool','getactivewindow']); return r['stdout'].strip()==args['window_id']
+    def hypr_json(self,endpoint):
+        if endpoint not in ('activewindow','activeworkspace'): raise ValueError('Unsupported IPC read')
+        if self.capabilities()['backend']!='hyprland': raise NotImplementedError('This action requires Hyprland IPC')
+        import json
+        r=self.runtime.run(['hyprctl','-j',endpoint],timeout=5)
+        if r['exit_code']: raise RuntimeError(r['stderr'] or 'Hyprland IPC failed')
+        data=json.loads(r['stdout'])
+        if not isinstance(data,dict) or (endpoint=='activeworkspace' and type(data.get('id')) is not int): raise ValueError('Malformed Hyprland response')
+        return data
+    def active_window(self):
+        data=self.hypr_json('activewindow')
+        # Minimize data: no screen capture, clipboard, or window contents.
+        return {'window':{k:data[k] for k in ('address','title','class','pid','workspace') if k in data},'backend':'hyprland'}
+    def switch_workspace(self,workspace):
+        if type(workspace) is not int or not 1<=workspace<=999: raise ValueError('Workspace must be an integer from 1 to 999')
+        before=self.hypr_json('activeworkspace')
+        r=self.runtime.run(['hyprctl','dispatch','workspace',str(workspace)],timeout=5)
+        if r['exit_code']: raise RuntimeError(r['stderr'] or 'Workspace dispatch failed')
+        return {'workspace':workspace,'previous_workspace':before.get('id')}
+    def verify_workspace(self,args,result):
+        return self.hypr_json('activeworkspace').get('id')==args['workspace']
     def open(self,target):
         # xdg-open has no browser observation API: never call navigation verified from exit alone.
         r=self.runtime.run(['xdg-open',target],timeout=15)
@@ -113,6 +135,13 @@ class DesktopController:
     def notify(self,text): return self.runtime.run(['notify-send','MONDAY',text])
     def register(self,r):
         s=lambda **kw:{k:{'type':v} for k,v in kw.items()}
+        r.register(Tool('desktop.list_windows','List compositor windows on request',{},Risk.READ_ONLY,self.windows))
+        r.register(Tool('desktop.get_active_window','Inspect only the current Hyprland window metadata',{},Risk.READ_ONLY,self.active_window))
+        r.register(Tool('desktop.focus_window','Focus an observed window',s(window_id=str),Risk.LOW,
+                        lambda window_id:self.window(window_id,'focus'),self.verify_window))
+        r.register(Tool('desktop.switch_workspace','Switch to a numbered Hyprland workspace',s(workspace=int),Risk.LOW,
+                        self.switch_workspace,self.verify_workspace))
+        r.register(Tool('desktop.launch_app','Launch a discovered XDG application',s(app=str),Risk.LOW,self.launch,self.verify_launch))
         r.register(Tool('app.discover','Discover XDG desktop entries',{},Risk.READ_ONLY,self.discover))
         r.register(Tool('app.launch','Launch a discovered application',s(app=str),Risk.LOW,self.launch,self.verify_launch))
         r.register(Tool('app.open_file','Open a file with a discovered application',s(app=str,path=str),Risk.MEDIUM,

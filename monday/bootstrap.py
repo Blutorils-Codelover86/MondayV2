@@ -19,9 +19,11 @@ def build(cfg=None,approve=None,dry_run=False):
     system=System(runtime); projects=Projects(cfg,runtime,fs,desktop); packages=Packages(runtime)
     web=WebTools(runtime,cfg,desktop)
     for group in (system,fs,desktop,projects,packages,web): group.register(registry)
+    registry.register(Tool('system.get_status','Read CPU, RAM and disk status',{},Risk.READ_ONLY,
+                           lambda:{'cpu':system.cpu(),'ram':system.ram(),'disk':system.disk()}))
     registry.register(Tool('command.run','Run an exact approved diagnostic argv template',{'argv':{'type':list},'cwd':{'type':str,'required':False}},Risk.READ_ONLY,
                            lambda argv,cwd=None:runtime.run(argv,cwd),lambda a,d:d['exit_code']==0))
     gateway=ActionGateway(registry,runtime,audit,approve,dry_run)
-    reasoner=OllamaReasoner(cfg) if cfg.ollama_model else None
+    reasoner=OllamaReasoner(cfg,runtime) if cfg.ollama_model else None
     engine=DecisionEngine(cfg,registry,reasoner,LayaProvider(cfg,runtime) if cfg.laya_path else None)
     return Agent(engine,gateway,audit)

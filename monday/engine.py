@@ -5,6 +5,7 @@ from .models import Action, Decision, TaskState, Risk
 from .runtime import Cancelled
 from .research import rank_candidates, best_excerpt, documentation_response, is_documentation
 from .conversation import classify, followup, outcome
+from .companion import native_intent, LanguageSession, explain
 
 class Interpreter:
     def __init__(self,cfg,registry,reasoner=None): self.cfg,self.registry,self.reasoner=cfg,registry,reasoner
@@ -22,6 +23,14 @@ class Interpreter:
             except (ValueError,TypeError) as e: return {'kind':'question','question':str(e)}
         conversation=classify(s)
         if conversation: return conversation
+        native=native_intent(s)
+        if native: return {'kind':'action','action':Action(*native)}
+        polite=re.fullmatch(r'(?:please |(?:can|could|would) you )(open|launch|focus|switch|find) (.+)',s,re.I)
+        if polite: return self.understand(polite[1]+' '+polite[2])
+        # Local chat answers do not obtain a tool registry or execute inferred actions.
+        if self.reasoner and re.match(r'^(?:what |who |how |why |tell me about |explain )',low) and not re.match(r"why (?:isn't|is not) .+ building",low) and not is_documentation(s) and not re.search(r'\b(?:difference|compare|differentiate)\b',low):
+            if re.search(r'\b(?:it|that|this)\b',low): return {'kind':'followup'}
+            return {'kind':'chat'}
         # Questions take precedence over diagnostic keywords; research only searches/reads.
         if re.match(r'^(?:what (?:is|are)|who |how (?:does|do)|why is|tell me about|explain )',low) and not re.match(r"why (?:isn't|is not) .+ building",low) and not re.search(r'\b(difference|differences|compare|differentiate)\b',low):
             if re.search(r'\b(it|that|this)\b',low): return {'kind':'followup'}
@@ -35,6 +44,8 @@ class Interpreter:
             target=m[1]
             if target.startswith(('https://','http://')): return {'kind':'action','action':Action('browser.open',{'url':target})}
             if target.startswith(('/','~','.')): return {'kind':'action','action':Action('desktop.open_file',{'path':str(Path(target).expanduser().absolute())})}
+            target=target.rstrip('.?! ')
+            if self.reasoner: return {'kind':'action','action':Action('desktop.launch_app',{'app':target})}
             return {'kind':'launch','app':target}
         m=re.fullmatch(r'(focus|close) (?:window )?(.+)',s,re.I)
         if m and not re.fullmatch(r'close (?:process )?\d+',s,re.I):
@@ -123,12 +134,14 @@ class DecisionEngine:
                 return done('Opening was requested; the visible result could not be verified.', 'PARTIAL')
             return done("Couldn't complete the objective: "+o.error, (o.data or {}).get('status','FAILED') if isinstance(o.data,dict) else 'FAILED')
         kind=ctx['kind']
+        if kind=='chat': return done('Local language response is pending.','PARTIAL')
         if kind=='conversation': return done(ctx['reply'])
         if kind=='question': return done(ctx['question'],'NEEDS_CLARIFICATION')
         if kind=='action':
             a=ctx['action']
             if not state.observations: return act(a.tool,a.arguments)
-            return done(self.describe(state.observations[-1]))
+            o=state.observations[-1]
+            return done(self.describe(o),'PARTIAL' if isinstance(o.data,dict) and o.data.get('complete') is False else 'SUCCESS')
         if kind=='overview':
             for tool in ('system.cpu','system.ram','system.disk'):
                 if not state.latest(tool): return act(tool)
@@ -258,11 +271,16 @@ class DecisionEngine:
 
     def describe(self,o):
         d=o.data; t=o.tool
-        if t=='desktop.windows':
+        if t=='desktop.get_active_window':
+            w=d['window']; return ('Active window: '+(w.get('title') or w.get('class') or 'unnamed')+' ('+w.get('class','unknown app')+').') if w else 'No active window was reported by Hyprland.'
+        if t=='desktop.switch_workspace': return f"Switched to workspace {d['workspace']}; the active workspace was verified."
+        if t=='system.get_status': return f"CPU {d['cpu']['percent']:.0f}%; RAM {d['ram']['percent']:.0f}% used ({d['ram']['available']/2**30:.2f} GiB available); storage {d['disk']['percent']:.0f}% used. This is one sample."
+        if t=='files.search': return f"Found {len(d['matches'])} candidate paths ({d['criteria']}; configured roots only): "+(', '.join(d['matches'][:8]) or 'none')+('. More matches omitted.' if len(d['matches'])>8 else '.')+(' Search was bounded or some folders were unavailable; result is partial.' if not d['complete'] else '')
+        if t in ('desktop.windows','desktop.list_windows'):
             titles=[w.get('title') or w.get('class') or str(w.get('address',w.get('id'))) for w in d['windows']]
             return f"Observed {len(titles)} windows: "+(', '.join(titles[:8]) or 'none')+'.'
-        if t in ('desktop.focus','desktop.close'): return 'Window '+d['operation']+' was verified for '+d['window_id']+'.'
-        if t=='system.ram': return f"RAM is {d['percent']:.0f}% used; {d['available']/2**30:.2f} GiB is available."
+        if t in ('desktop.focus','desktop.close','desktop.focus_window'): return 'Window '+d['operation']+' was verified for '+d['window_id']+'.'
+        if t=='system.ram': return f"RAM is {d['percent']:.0f}% used; {d['available']/2**30:.2f} GiB is available. Available RAM includes reclaimable memory; this sample alone does not establish a performance problem."
         if t=='system.cpu': return f"CPU is {d['percent']:.0f}% busy; load averages are "+', '.join(f'{x:.2f}' for x in d['load'])+'.'
         if t=='system.gpu':
             devices=d['devices']; readings=[]
@@ -287,7 +305,7 @@ class DecisionEngine:
             except (ValueError,KeyError): return 'Bluetooth state could not be decoded.'
         if t=='system.audio': return 'Audio server responded; use “explain” for devices and streams.'
         if t=='system.uptime': return f"Uptime is {d['seconds']/3600:.1f} hours."
-        if t=='app.launch': return d['app']+' has a running process; launch was observed.'
+        if t in ('app.launch','desktop.launch_app'): return d['app']+' has a running process; launch was observed.'
         if t.startswith('fs.'):
             if t=='fs.list':
                 names=[e.get('name','') if isinstance(e,dict) else str(e) for e in d['entries'][:8]]
@@ -310,15 +328,31 @@ class Agent:
     def __init__(self,engine,gateway,audit,progress=None):
         self.engine,self.gateway,self.audit,self.progress=engine,gateway,audit,progress
         self.last_task=None
+        self.language=LanguageSession()
+        self.stage=None
+        self.observed=None
+        self.last_turn_chat=False
     def run(self,objective):
         state=TaskState(objective)
         try:
             self.gateway.runtime.check()
+            if objective.strip().casefold().rstrip('!.') in ('stop the current task','stop current task'):
+                raise Cancelled('No current task is running; no actions were executed.')
             state.context.update(self.engine.interpreter.understand(objective))
             for _ in range(self.engine.cfg.max_steps):
                 self.gateway.runtime.check()
                 if time.monotonic()-state.started>self.engine.cfg.task_timeout: raise TimeoutError('Task time budget exhausted')
-                if state.context.get('kind')=='followup':
+                if state.context.get('kind')=='chat' or (state.context.get('kind')=='followup' and self.last_turn_chat and objective.strip().casefold().rstrip('?!.,') not in ('what did you just do','what did you do','what was the last task')):
+                    state.context['kind']='chat'
+                    response=None
+                    if not self.gateway.dry_run and self.engine.reasoner:
+                        try: response=self.language.answer(self.engine.reasoner,objective)
+                        except Cancelled: raise
+                        except Exception: response=None
+                    d=Decision(objective,state.snapshot(),None,'Text-only local language response','','No execution',
+                        response=('Local answer (not externally verified): '+response) if response else 'Local language model unavailable or returned an invalid answer. I cannot answer that reliably; try a specific question or an explicit search.',
+                        status='PARTIAL' if not response else 'SUCCESS')
+                elif state.context.get('kind')=='followup':
                     status,response=('PLANNED','Text-only follow-up planned; no tools or model invoked.') if self.gateway.dry_run else followup(objective,self.last_task,self.engine.reasoner)
                     d=Decision(objective,state.snapshot(),None,'Explain selected prior observations','','No new execution',response=response,status=status)
                 else: d=self.engine.next(state)
@@ -328,8 +362,33 @@ class Agent:
                 # Reject repeated identical action after success: provider loops never run indefinitely.
                 if any(old.next_action==d.next_action for old in state.decisions[:-1]):
                     state.status,state.response='FAILED','Decision repeated without progress.'; break
+                # Models can select only this already validated, user-requested candidate.
+                # Confidence never changes permissions. Unavailable Laya uses the explicit recipe.
+                if self.engine.reasoner and state.context.get('kind')=='action' and not state.observations and not self.gateway.dry_run and not objective.lstrip().startswith('tool '):
+                    if self.stage: self.stage('Interpreting locally with '+self.engine.cfg.ollama_model)
+                    try: proposal=self.engine.reasoner.interpret(objective,[t for t in self.engine.registry.describe() if t['name']==d.next_action.tool])
+                    except Cancelled: raise
+                    except Exception: proposal=None
+                    self.gateway.runtime.check()
+                    if proposal is not None and (not isinstance(proposal,dict) or proposal.get('tool')!=d.next_action.tool or proposal.get('arguments')!=d.next_action.arguments):
+                        state.status,state.response='NEEDS_CLARIFICATION','The local model interpretation did not match the explicit action. Please name the exact action and target; nothing ran.'; break
+                if self.engine.provider and not self.gateway.dry_run:
+                    if self.stage: self.stage('Selecting the structured decision with Laya')
+                    candidate=json.dumps({'tool':d.next_action.tool,'arguments':d.next_action.arguments})
+                    try:
+                        choice=self.engine.provider.choose(json.dumps({'objective':objective,'candidate':candidate}),
+                            {'execute':candidate,'clarify':'Ask the user to clarify; execute nothing'})
+                    except Cancelled: raise
+                    except Exception: choice=None
+                    self.gateway.runtime.check()
+                    self.audit.emit('routing',source='laya' if choice else 'deterministic fallback',choice=choice)
+                    state.context['routing']='laya' if choice else 'deterministic fallback'
+                    provider_status=getattr(self.engine.provider,'last_status','unavailable')
+                    if choice=='clarify' or choice not in (None,'execute') or (choice is None and provider_status in ('invalid','failed')):
+                        state.status,state.response='NEEDS_CLARIFICATION','Laya could not select the proposed action. Please name the exact action and target.'; break
                 if self.progress: self.progress(d)
                 o=self.gateway.perform(d.next_action); state.observations.append(o)
+                if self.observed: self.observed(d,o)
                 if o.simulated:
                     workflow=" → ".join(self.engine.conditional_workflow(state))
                     state.status,state.response='PLANNED',f"Conditional plan: {workflow}; next arguments {d.next_action.arguments}; execution and verification are pending."; break
@@ -340,12 +399,23 @@ class Agent:
             self.gateway.runtime.stop.set(); state.status,state.response='CANCELLED','Stopped.'
         except Exception as e:
             state.status,state.response='FAILED',str(e)
+        if state.observations and self.engine.reasoner and not self.gateway.dry_run and state.status not in ('CANCELLED','BLOCKED'):
+            try:
+                self.gateway.runtime.check()
+                if self.stage: self.stage('Explaining the recorded outcome locally')
+                state.response=explain(self.engine.reasoner,state)
+            except Cancelled:
+                state.status='CANCELLED'; state.response+=' Explanation stopped; no further actions ran.'
+            except Exception: pass
         state.response=' '.join(state.response.split())
         if state.status in ('FAILED','BLOCKED','CANCELLED') and state.observations:
             count=sum(o.verified and o.ok for o in state.observations)
             state.response+=f' ({count} earlier action(s) verified; requested goal incomplete.)'
+        if state.context.get('kind')=='chat':
+            self.language.remember(objective,state.response); self.last_turn_chat=True
+        elif state.observations or state.context.get('kind') not in ('conversation','followup','question'): self.last_turn_chat=False
         self.audit.save(state)
-        if state.context.get('kind') not in ('conversation','followup','question'):
+        if state.context.get('kind') not in ('conversation','followup','question','chat'):
             from copy import deepcopy
             self.last_task=deepcopy(state)
         return state

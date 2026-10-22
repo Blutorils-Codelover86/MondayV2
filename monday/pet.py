@@ -7,6 +7,8 @@ from urllib.request import Request, urlopen
 from .bootstrap import build
 from .config import Config
 from .models import Action
+from .companion import LanguageSession
+from .redact import redact
 
 LABELS={'system.ram':'Checking RAM','system.cpu':'Sampling CPU','system.disk':'Checking storage','system.gpu':'Sampling GPU',
         'web.search':'Finding relevant sources','web.read':'Reading a source','process.search':'Inspecting processes',
@@ -34,9 +36,10 @@ class PetService:
         self.phase='idle'; self.response='Ready when you are.'; self.progress=''; self.approval=None
         self.task_cancel=threading.Event(); self.work_thread=None
         self.approval_event=threading.Event(); self.approval_answer=False; self.agent=None
-        self.alert=None; self.monitoring=True; self.ui_ready=False; self.last_seen=time.monotonic()
+        self.alert=None; self.monitoring=False; self.ui_ready=False; self.last_seen=time.monotonic()
         self.watch=HealthWatch(); self.history=[]; self.task_id=''; self.ui_pid=None
-        self.last_task=None
+        self.last_task=None; self.language=LanguageSession(); self.last_turn_chat=False
+        self.steps=[]
         self.ui_geometry=(400,320)
         self.desktop={'backend':'native','configured':False,'detail':''}
         self.task_status='IDLE'
@@ -45,7 +48,7 @@ class PetService:
             self.last_seen=time.monotonic()
             return {'phase':self.phase,'response':self.response,'progress':self.progress,
                     'approval':self.approval,'alert':self.alert,'monitoring':self.monitoring,
-                    'ready':self.ui_ready,'task_id':self.task_id,'history':self.history[-5:],'desktop':self.desktop,'status':self.task_status}
+                    'steps':list(self.steps),'ready':self.ui_ready,'task_id':self.task_id,'history':self.history[-5:],'desktop':self.desktop,'status':self.task_status}
     def geometry(self,width,height):
         if type(width) is not int or type(height) is not int or not (90<=width<=1200 and 80<=height<=1200):
             raise ValueError('Invalid pet geometry')
@@ -54,7 +57,13 @@ class PetService:
         if not isinstance(objective,str) or not objective.strip() or len(objective)>4000:
             raise ValueError('Enter a command of 1–4000 characters')
         with self.lock:
+            if objective.strip().casefold().rstrip('!.') in ('stop','stop the current task','stop current task'):
+                self.cancel()
+                if self.phase not in ('busy','approval'):
+                    self.task_status='CANCELLED'; self.response='No current task is running.'
+                return self.snapshot()
             if self.phase in ('busy','approval'): raise ValueError('A task is already running')
+            self.steps=[]
             self.phase='busy'; self.progress='Understanding your request'; self.response=''; self.approval=None
             self.task_status='RUNNING'
             self.task_id=uuid.uuid4().hex; self.alert=None; self.task_cancel.clear()
@@ -83,14 +92,27 @@ class PetService:
             self.approval_answer=accepted; self.approval_event.set()
     def progress_update(self,decision):
         with self.lock:
-            self.progress=LABELS.get(decision.next_action.tool,'Working on your request')+'…'
+            action=decision.next_action
+            self.progress=LABELS.get(action.tool,action.tool)+'…'
+            self.steps.append(redact({'tool':action.tool,'status':'RUNNING',
+                'arguments':{k:v for k,v in action.arguments.items() if k not in ('content','text')}}))
+            self.steps=self.steps[-32:]
+    def stage_update(self,message):
+        with self.lock: self.progress=message+'…'
+    def observation_update(self,decision,observation):
+        with self.lock:
+            if self.steps:
+                status='VERIFIED' if observation.ok and observation.verified else 'FAILED'
+                if not observation.ok and isinstance(observation.data,dict): status=observation.data.get('status',status)
+                self.steps[-1]['status']=status
     def work(self,objective):
         response='Task did not complete.'; status='FAILED'
         try:
             agent=build(self.cfg,self.approve)
             agent.last_task=self.last_task
+            agent.language=self.language; agent.last_turn_chat=self.last_turn_chat
             with self.lock: self.agent=agent
-            agent.progress=self.progress_update
+            agent.progress=self.progress_update; agent.observed=self.observation_update; agent.stage=self.stage_update
             if self.closed.is_set() or self.task_cancel.is_set(): agent.gateway.runtime.stop.set()
             if objective in ('explain','history'):
                 records=agent.audit.history(5 if objective=='history' else 1)
@@ -102,7 +124,7 @@ class PetService:
                 status='SUCCESS'
             else:
                 result=agent.run(objective); response,status=result.response,result.status
-                self.last_task=agent.last_task
+                self.last_task=agent.last_task; self.last_turn_chat=agent.last_turn_chat
         except Exception as e: response=str(e)
         finally:
             # Publish terminal state and clear the active agent together. A new submission
@@ -110,6 +132,7 @@ class PetService:
             with self.lock:
                 self.response=response; self.phase='done' if status in ('SUCCESS','PARTIAL','PLANNED') else 'error'
                 self.task_status=status
+                if self.steps and self.steps[-1]['status']=='RUNNING': self.steps[-1]['status']=status
                 self.progress=''; self.agent=None; self.approval=None
                 self.history.append({'objective':objective,'response':response,'status':status})
                 self.history=self.history[-5:]
@@ -118,6 +141,8 @@ class PetService:
         with self.lock:
             if self.agent: self.agent.gateway.runtime.stop.set()
             self.approval_answer=False; self.approval_event.set()
+            if self.phase not in ('busy','approval'):
+                self.task_status='CANCELLED'; self.phase='done'; self.progress=''; self.response='No current task is running.'
     def shutdown(self): self.closed.set(); self.cancel()
     def monitor(self):
         # Only reads three inexpensive metrics every 30 seconds while opted in.
