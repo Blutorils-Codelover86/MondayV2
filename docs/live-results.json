@@ -1,0 +1,119 @@
+[
+  {
+    "tool": "system.cpu",
+    "ok": true,
+    "verified": true,
+    "error": ""
+  },
+  {
+    "tool": "system.ram",
+    "ok": true,
+    "verified": true,
+    "error": ""
+  },
+  {
+    "tool": "system.disk",
+    "ok": true,
+    "verified": true,
+    "error": ""
+  },
+  {
+    "tool": "system.temperatures",
+    "ok": true,
+    "verified": true,
+    "error": ""
+  },
+  {
+    "tool": "system.battery",
+    "ok": true,
+    "verified": true,
+    "error": ""
+  },
+  {
+    "tool": "system.network",
+    "ok": true,
+    "verified": true,
+    "error": ""
+  },
+  {
+    "tool": "system.uptime",
+    "ok": true,
+    "verified": true,
+    "error": ""
+  },
+  {
+    "tool": "system.audio",
+    "ok": true,
+    "verified": true,
+    "error": ""
+  },
+  {
+    "tool": "system.bluetooth",
+    "ok": true,
+    "verified": true,
+    "error": ""
+  },
+  {
+    "tool": "process.search",
+    "ok": true,
+    "verified": true,
+    "error": ""
+  },
+  {
+    "tool": "service.inspect",
+    "ok": true,
+    "verified": true,
+    "error": ""
+  },
+  {
+    "tool": "app.discover",
+    "ok": true,
+    "verified": true,
+    "error": ""
+  },
+  {
+    "tool": "desktop.capabilities",
+    "ok": true,
+    "verified": true,
+    "error": ""
+  },
+  {
+    "tool": "package.inspect",
+    "ok": true,
+    "verified": true,
+    "error": ""
+  },
+  {
+    "tool": "web.read",
+    "ok": true,
+    "verified": true,
+    "error": ""
+  },
+  {
+    "tool": "project.run (temporary fixture)",
+    "ok": true,
+    "verified": true,
+    "data": {
+      "argv": [
+        "make"
+      ],
+      "truncated": false,
+      "stdout": "MONDAY live fixture build passed\n",
+      "stderr": "",
+      "exit_code": 0,
+      "diagnostics": [],
+      "path": "/tmp/monday-live-sy180i9m/project"
+    },
+    "error": ""
+  },
+  {
+    "tool": "fs.create (temporary fixture)",
+    "ok": true,
+    "verified": true
+  },
+  {
+    "tool": "fs.undo_create (temporary fixture)",
+    "ok": true,
+    "verified": true
+  }
+]

@@ -1,0 +1,129 @@
+"""Desktop APIs: XDG launch, Hyprland IPC, optional KWin kdotool; never X11 emulation."""
+import configparser, os, re, shlex, shutil, subprocess, time
+from pathlib import Path
+import psutil
+from .models import Risk
+from .registry import Tool
+
+class DesktopController:
+    def __init__(self,runtime): self.runtime=runtime
+    def capabilities(self):
+        hypr=bool(os.getenv('HYPRLAND_INSTANCE_SIGNATURE') and shutil.which('hyprctl'))
+        kwin='KDE' in os.getenv('XDG_CURRENT_DESKTOP','') and bool(shutil.which('kdotool'))
+        return {'desktop':os.getenv('XDG_CURRENT_DESKTOP','unknown'),'windows':hypr or kwin,
+                'backend':'hyprland' if hypr else 'kwin-kdotool' if kwin else 'xdg',
+                'clipboard':bool(shutil.which('wl-paste')),'notifications':bool(shutil.which('notify-send'))}
+    def discover(self):
+        bases=[Path(os.getenv('XDG_DATA_HOME',str(Path.home()/'.local/share')))]
+        bases.extend(Path(x) for x in os.getenv('XDG_DATA_DIRS','/usr/local/share:/usr/share').split(':'))
+        found={}
+        for base in bases:
+            for path in (base/'applications').rglob('*.desktop'):
+                ident=str(path.relative_to(base/'applications')).replace('/','-')
+                if ident in found: continue
+                parser=configparser.ConfigParser(interpolation=None,strict=False)
+                try:
+                    parser.read(path); entry=parser['Desktop Entry']
+                    if entry.get('Type')!='Application' or entry.get('Hidden','false')=='true': continue
+                    if not entry.get('Exec') or entry.get('NoDisplay','false')=='true': continue
+                    found[ident]={'id':ident,'name':entry.get('Name',ident),'exec':entry['Exec'],
+                                  'path':str(path),'terminal':entry.get('Terminal','false')=='true'}
+                except (configparser.Error,KeyError,UnicodeError): continue
+        return {'applications':list(found.values())}
+    def resolve(self,app):
+        apps=self.discover()['applications']
+        exact=[a for a in apps if app.casefold() in (a['id'].casefold(),a['name'].casefold(),Path(a['id']).stem.casefold())]
+        candidates=exact or [a for a in apps if app.casefold() in a['name'].casefold() or app.casefold() in a['id'].casefold()]
+        if len(candidates)!=1: raise ValueError('Application not found' if not candidates else 'Application is ambiguous: '+', '.join(a['name'] for a in candidates[:6]))
+        return candidates[0]
+    def argv(self,entry,file=None):
+        tokens=shlex.split(entry['exec']); argv=[]
+        for token in tokens:
+            if token in ('%f','%F','%u','%U'):
+                if file: argv.append(file)
+            elif token=='%i': continue
+            elif token=='%c': argv.append(entry['name'])
+            elif token=='%k': argv.append(entry['path'])
+            elif '%' in token:
+                if '%%' in token: argv.append(token.replace('%%','%'))
+                else: raise ValueError('Unsupported desktop Exec field')
+            else: argv.append(token)
+        if file and not any(t in tokens for t in ('%f','%F','%u','%U')): argv.append(file)
+        if not argv: raise ValueError('Empty desktop command')
+        executable=Path(argv[0]).name
+        if executable in {'sh','bash','zsh','fish','env','sudo','pkexec','python','python3','perl','ruby'}:
+            raise PermissionError('Desktop entry uses an interpreter or privilege wrapper')
+        if entry['terminal']: raise ValueError('Terminal desktop entries need a dedicated launcher')
+        return argv
+    def launch(self,app,file=None):
+        entry=self.resolve(app); argv=self.argv(entry,file)
+        self.runtime.check()
+        p=subprocess.Popen(argv,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
+        # Give single-instance launchers time to hand off; the verifier inspects processes/windows.
+        time.sleep(.3)
+        return {'app':entry['name'],'pid':p.pid,'executable':Path(argv[0]).name,'returncode':p.poll()}
+    def verify_launch(self,args,result):
+        if result.get('returncode') not in (None,0): return False
+        until=time.monotonic()+5
+        while time.monotonic()<until:
+            self.runtime.check()
+            for p in psutil.process_iter(['pid','name','status','exe']):
+                try:
+                    if p.info['status']!=psutil.STATUS_ZOMBIE and (p.pid==result['pid'] or Path(p.info['exe'] or '').name==result['executable']):
+                        result['observation']='matching process observed'; return True
+                except (psutil.NoSuchProcess,psutil.AccessDenied): continue
+            time.sleep(.1)
+        return False
+    def windows(self):
+        backend=self.capabilities()['backend']
+        if backend=='hyprland':
+            import json
+            r=self.runtime.run(['hyprctl','-j','clients'])
+            if r['exit_code']: raise RuntimeError(r['stderr'])
+            return {'windows':json.loads(r['stdout']),'backend':backend}
+        if backend=='kwin-kdotool':
+            r=self.runtime.run(['kdotool','search','--name','.*'])
+            if r['exit_code']: raise RuntimeError(r['stderr'])
+            return {'windows':[{'id':x} for x in r['stdout'].splitlines()],'backend':backend}
+        raise NotImplementedError('Window inspection is unavailable on this compositor; KDE needs optional kdotool')
+    def window(self,window_id,operation):
+        before=self.windows(); backend=before['backend']
+        ids=[str(x.get('address',x.get('id'))) for x in before['windows']]
+        if window_id not in ids: raise ValueError('Window is not in observed inventory')
+        if backend=='hyprland': argv=['hyprctl','dispatch',operation+'window','address:'+window_id]
+        else: argv=['kdotool','windowactivate' if operation=='focus' else 'windowclose',window_id]
+        r=self.runtime.run(argv)
+        if r['exit_code']: raise RuntimeError(r['stderr'])
+        return {'window_id':window_id,'operation':operation,'backend':backend}
+    def verify_window(self,args,result):
+        if result['operation']=='close':
+            return not any(str(w.get('address',w.get('id')))==args['window_id'] for w in self.windows()['windows'])
+        if result['backend']=='hyprland':
+            import json
+            r=self.runtime.run(['hyprctl','-j','activewindow']); return json.loads(r['stdout']).get('address')==args['window_id']
+        r=self.runtime.run(['kdotool','getactivewindow']); return r['stdout'].strip()==args['window_id']
+    def open(self,target):
+        # xdg-open has no browser observation API: never call navigation verified from exit alone.
+        r=self.runtime.run(['xdg-open',target],timeout=15)
+        return {**r,'target':target,'observation':'handoff only'}
+    def clipboard_read(self): return self.runtime.run(['wl-paste','--no-newline'])
+    def clipboard_write(self,text): return self.runtime.run(['wl-copy'],input_text=text)
+    def notify(self,text): return self.runtime.run(['notify-send','MONDAY',text])
+    def register(self,r):
+        s=lambda **kw:{k:{'type':v} for k,v in kw.items()}
+        r.register(Tool('app.discover','Discover XDG desktop entries',{},Risk.READ_ONLY,self.discover))
+        r.register(Tool('app.launch','Launch a discovered application',s(app=str),Risk.LOW,self.launch,self.verify_launch))
+        r.register(Tool('app.open_file','Open a file with a discovered application',s(app=str,path=str),Risk.MEDIUM,
+                        lambda app,path:self.launch(app,path),self.verify_launch))
+        r.register(Tool('desktop.capabilities','Report compositor API support',{},Risk.READ_ONLY,self.capabilities))
+        r.register(Tool('desktop.windows','Inspect supported compositor windows',{},Risk.READ_ONLY,self.windows))
+        for op,risk in [('focus',Risk.LOW),('close',Risk.MEDIUM)]:
+            r.register(Tool('desktop.'+op,'Request window '+op,s(window_id=str),risk,
+                            lambda window_id,op=op:self.window(window_id,op),self.verify_window))
+        r.register(Tool('desktop.open_file','Request XDG file handoff (not verified navigation)',s(path=str),Risk.MEDIUM,
+                        lambda path:self.open(path),lambda a,d:False))
+        r.register(Tool('desktop.clipboard_read','Read Wayland clipboard',{},Risk.READ_ONLY,self.clipboard_read))
+        r.register(Tool('desktop.clipboard_write','Set Wayland clipboard',s(text=str),Risk.MEDIUM,self.clipboard_write,
+                        lambda a,d:d['exit_code']==0 and self.clipboard_read()['stdout']==a['text']))
+        r.register(Tool('desktop.notify','Request desktop notification',s(text=str),Risk.LOW,self.notify,
+                        lambda a,d:d['exit_code']==0))

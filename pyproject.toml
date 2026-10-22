@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+[project]
+name = "monday-v2"
+version = "2.0.0"
+description = "Local supervised PC decision engine"
+requires-python = ">=3.11"
+dependencies = ["psutil>=5.9"]
+[project.optional-dependencies]
+test = ["pytest>=7"]
+laya = ["laya>=0.3.22"]
+[project.scripts]
+monday = "monday.cli:main"
+[tool.setuptools.packages.find]
+include = ["monday*"]
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.setuptools.package-data]
+monday = ["ui/*.qml"]

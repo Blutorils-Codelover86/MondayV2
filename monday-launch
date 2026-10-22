@@ -1,0 +1,3 @@
+#!/bin/sh
+cd /home/blu/Projects/MondayV2 || exit 1
+exec /home/blu/Projects/MondayV2/.venv/bin/python -m monday "$@"

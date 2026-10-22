@@ -1,0 +1,38 @@
+
+# Local environments and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.cache/
+node_modules/
+
+# Secrets and credentials
+.env
+.env.*
+!.env.example
+!.env.sample
+*credentials*.json
+*token*.json
+*.pem
+*.key
+
+# Personal runtime data and model weights
+data/
+logs/
+memory/
+sessions/
+*.db
+*.db-*
+*.sqlite*
+*.log
+models/
+checkpoints/
+*.safetensors
+*.gguf
+
+# Build output
+build/
+dist/
+*.egg-info/

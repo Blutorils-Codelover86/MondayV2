@@ -1,0 +1,875 @@
+[
+  {
+    "name": "system.cpu",
+    "description": "Inspect cpu",
+    "risk": "READ_ONLY",
+    "schema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "system.ram",
+    "description": "Inspect ram",
+    "risk": "READ_ONLY",
+    "schema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "system.disk",
+    "description": "Inspect disk",
+    "risk": "READ_ONLY",
+    "schema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "system.gpu",
+    "description": "Inspect gpu",
+    "risk": "READ_ONLY",
+    "schema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "system.temperatures",
+    "description": "Inspect temperatures",
+    "risk": "READ_ONLY",
+    "schema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "system.battery",
+    "description": "Inspect battery",
+    "risk": "READ_ONLY",
+    "schema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "system.uptime",
+    "description": "Inspect uptime",
+    "risk": "READ_ONLY",
+    "schema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "system.network",
+    "description": "Inspect network",
+    "risk": "READ_ONLY",
+    "schema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "system.audio",
+    "description": "Inspect audio",
+    "risk": "READ_ONLY",
+    "schema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "system.bluetooth",
+    "description": "Inspect bluetooth",
+    "risk": "READ_ONLY",
+    "schema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "system.logs",
+    "description": "Inspect logs",
+    "risk": "READ_ONLY",
+    "schema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "process.search",
+    "description": "Search and rank processes by RSS",
+    "risk": "READ_ONLY",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "process.inspect",
+    "description": "Inspect a process",
+    "risk": "READ_ONLY",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "pid": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "pid"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "process.terminate",
+    "description": "Graceful termination of an observed user process",
+    "risk": "MEDIUM",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "pid": {
+          "type": "integer"
+        },
+        "create_time": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "pid",
+        "create_time"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "service.inspect",
+    "description": "Read system service state",
+    "risk": "READ_ONLY",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "service.restart",
+    "description": "Restart one service via OS authentication",
+    "risk": "HIGH",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "fs.inspect",
+    "description": "inspect within configured roots",
+    "risk": "READ_ONLY",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "fs.list",
+    "description": "list within configured roots",
+    "risk": "READ_ONLY",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "fs.search",
+    "description": "search within configured roots",
+    "risk": "READ_ONLY",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "pattern": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "pattern"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "fs.storage",
+    "description": "storage within configured roots",
+    "risk": "READ_ONLY",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "fs.read",
+    "description": "read within configured roots",
+    "risk": "READ_ONLY",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "fs.create",
+    "description": "create within configured roots",
+    "risk": "MEDIUM",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string"
+        },
+        "directory": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "fs.write",
+    "description": "write within configured roots",
+    "risk": "MEDIUM",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "content"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "fs.copy",
+    "description": "copy within configured roots",
+    "risk": "MEDIUM",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string"
+        },
+        "destination": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "destination"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "fs.move",
+    "description": "move within configured roots",
+    "risk": "MEDIUM",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string"
+        },
+        "destination": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "destination"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "fs.rename",
+    "description": "rename within configured roots",
+    "risk": "MEDIUM",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string"
+        },
+        "destination": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "destination"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "fs.delete",
+    "description": "delete within configured roots",
+    "risk": "CRITICAL",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "fs.undo_create",
+    "description": "undo_create within configured roots",
+    "risk": "MEDIUM",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "expected_hash": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "expected_hash"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "fs.undo_move",
+    "description": "undo_move within configured roots",
+    "risk": "MEDIUM",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string"
+        },
+        "destination": {
+          "type": "string"
+        },
+        "expected_hash": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "destination",
+        "expected_hash"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "app.discover",
+    "description": "Discover XDG desktop entries",
+    "risk": "READ_ONLY",
+    "schema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "app.launch",
+    "description": "Launch a discovered application",
+    "risk": "LOW",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "app": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "app"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "app.open_file",
+    "description": "Open a file with a discovered application",
+    "risk": "MEDIUM",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "app": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "app",
+        "path"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "desktop.capabilities",
+    "description": "Report compositor API support",
+    "risk": "READ_ONLY",
+    "schema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "desktop.windows",
+    "description": "Inspect supported compositor windows",
+    "risk": "READ_ONLY",
+    "schema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "desktop.focus",
+    "description": "Request window focus",
+    "risk": "LOW",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "window_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "window_id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "desktop.close",
+    "description": "Request window close",
+    "risk": "MEDIUM",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "window_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "window_id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "desktop.open_file",
+    "description": "Request XDG file handoff (not verified navigation)",
+    "risk": "MEDIUM",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "desktop.clipboard_read",
+    "description": "Read Wayland clipboard",
+    "risk": "READ_ONLY",
+    "schema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "desktop.clipboard_write",
+    "description": "Set Wayland clipboard",
+    "risk": "MEDIUM",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "desktop.notify",
+    "description": "Request desktop notification",
+    "risk": "LOW",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "project.locate",
+    "description": "Locate a named project in configured roots",
+    "risk": "READ_ONLY",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "project.inspect",
+    "description": "Determine project and build type",
+    "risk": "READ_ONLY",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "project.git",
+    "description": "Inspect Git without repo-configured executable helpers",
+    "risk": "READ_ONLY",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "operation": {
+          "type": "string",
+          "enum": [
+            "status",
+            "diff",
+            "diff_content"
+          ]
+        }
+      },
+      "required": [
+        "path",
+        "operation"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "project.run",
+    "description": "Run an approved project build/test template",
+    "risk": "HIGH",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "operation": {
+          "type": "string",
+          "enum": [
+            "build",
+            "test"
+          ]
+        }
+      },
+      "required": [
+        "path",
+        "operation"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "project.editor",
+    "description": "Open project in discovered editor",
+    "risk": "MEDIUM",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "app": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "app"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "project.terminal",
+    "description": "Launch terminal at project root",
+    "risk": "LOW",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "package.inspect",
+    "description": "Inspect installed or repository Arch package",
+    "risk": "READ_ONLY",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "installed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "package.operate",
+    "description": "Apply approved, previewed package transaction through pkexec",
+    "risk": "HIGH",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "operation": {
+          "type": "string",
+          "enum": [
+            "install",
+            "remove",
+            "upgrade"
+          ]
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "web.search",
+    "description": "Discover URLs; search snippets are not evidence",
+    "risk": "READ_ONLY",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "web.read",
+    "description": "Read a page as untrusted evidence",
+    "risk": "READ_ONLY",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "browser.open",
+    "description": "Request browser navigation; handoff cannot prove visible page",
+    "risk": "LOW",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "command.run",
+    "description": "Run an exact approved diagnostic argv template",
+    "risk": "READ_ONLY",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "argv": {
+          "type": "array"
+        },
+        "cwd": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "argv"
+      ],
+      "additionalProperties": false
+    }
+  }
+]

@@ -1,0 +1,29 @@
+{
+  "method": "5 fresh subprocesses; RSS after REPL prompt; no models or child services; wall clock includes Python startup",
+  "python": "3.14.7",
+  "idle_rss_bytes": [
+    26206208,
+    26279936,
+    26279936,
+    26316800,
+    26312704
+  ],
+  "idle_rss_mib_median": 25.0625,
+  "startup_seconds": [
+    0.24552328000027046,
+    0.23948070000005828,
+    0.24095535699962056,
+    0.25068545899921446,
+    0.23490607500025362
+  ],
+  "startup_median_seconds": 0.24095535699962056,
+  "ram_task_seconds": [
+    0.32663119100016047,
+    0.32102828700044483,
+    0.31648703800055955,
+    0.3472707020000598,
+    0.3308875530001387
+  ],
+  "ram_task_median_seconds": 0.32663119100016047,
+  "system_total_ram_bytes": 7987093504
+}

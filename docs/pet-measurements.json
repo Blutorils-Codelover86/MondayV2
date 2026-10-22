@@ -1,0 +1,15 @@
+{
+  "pet_processes": [
+    {
+      "name": "python",
+      "rss_mib": 27.64
+    },
+    {
+      "name": "qml6",
+      "rss_mib": 153.53
+    }
+  ],
+  "rss_sum_mib": 181.17,
+  "ui_ready": true,
+  "method": "sum of native QML and backend resident memory on the live desktop; shared pages may be counted twice"
+}
