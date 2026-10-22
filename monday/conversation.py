@@ -27,6 +27,7 @@ def classify(text):
     for kind,pattern in patterns.items():
         if re.fullmatch(pattern,turn) or (remainder!=turn and re.fullmatch(pattern,remainder)):
             return {'kind':'conversation','reply':REPLIES[kind]}
+    if turn in ('what did you just do','what did you do','what was the last task'): return {'kind':'followup'}
     if re.fullmatch(r'(?:why|what happened|why (?:did|was) (?:it|that|this) (?:fail|failed|blocked|cancelled|partial)|what does (?:that|this|it) mean|explain (?:that|this|it)(?: more)?|tell me more|explain more|how does (?:it|that) work|who (?:created|made) it)',turn):
         return {'kind':'followup'}
     if (turn in ('yes','y','go ahead','do it','do that') or
@@ -48,6 +49,7 @@ def outcome(state):
 def followup(text,previous,reasoner):
     if previous is None: return 'NEEDS_CLARIFICATION','What topic or task are you referring to? Give a topic or run a task first.'
     low=text.casefold()
+    if low.strip(' ?!.') in ('what did you just do','what did you do','what was the last task'): return 'SUCCESS',outcome(previous)
     if re.search(r'fail|blocked|cancelled|partial|happened',low) or low.strip(' ?!.')=='why':
         return 'SUCCESS',outcome(previous)
     evidence=[o.data for o in previous.observations if o.tool=='web.read' and o.ok and o.verified and not o.simulated]

@@ -26,6 +26,7 @@ class CommandPolicy:
         return argv
 
 class ActionGateway:
+    aliases={'desktop.launch_app':'app.launch','desktop.list_windows':'desktop.windows','desktop.focus_window':'desktop.focus'}
     def __init__(self, registry, runtime, audit, approve=None, dry_run=False):
         self.registry, self.runtime, self.audit = registry, runtime, audit
         self.approve = approve or (lambda _:False)
@@ -35,6 +36,8 @@ class ActionGateway:
 
     def risk(self, action):
         tool = self.registry.validate(action.tool, action.arguments)
+        denied={self.aliases.get(name,name) for name in self.runtime.cfg.denied_tools}
+        if self.aliases.get(action.tool,action.tool) in denied: raise PermissionError("Tool permission denied by MONDAY_DENY_TOOLS")
         args = action.arguments
         for key in ("path", "source", "destination", "cwd"):
             if key in args:

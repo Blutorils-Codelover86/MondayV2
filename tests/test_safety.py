@@ -86,7 +86,7 @@ def test_mutation_verifier_required(agent):
     with pytest.raises(ValueError): agent.gateway.registry.register(Tool('bad','bad',{},Risk.HIGH,lambda:None))
 
 def test_confidence_cannot_authorize(agent,cfg):
-    agent.engine.provider=type('Provider',(),{'choose':lambda *a:'yes'})()
+    agent.engine.provider=type('Provider',(),{'choose':lambda *a:'execute'})()
     state=agent.run('tool fs.create '+json.dumps({'path':str(cfg.roots[0]/'f')}))
     assert state.status=='CANCELLED' and not (cfg.roots[0]/'f').exists()
 

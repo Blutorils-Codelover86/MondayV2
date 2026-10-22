@@ -36,6 +36,32 @@ class Filesystem:
                 count+=1
             if count>20000 or len(found)>=100 or time.monotonic()-started>3: break
         return {"matches":found[:100], "bounded":True}
+    def search_roots(self,pattern):
+        if not pattern.strip() or len(pattern)>200: raise ValueError('Use a search pattern of 1–200 characters')
+        matches=[]; scanned=0; complete=True; started=time.monotonic(); unreadable=0
+        def onerror(error):
+            nonlocal complete,unreadable
+            complete=False; unreadable+=1
+        markers={'pyproject.toml','setup.py','requirements.txt'}
+        for base in self.cfg.roots:
+            base=self.path(str(base))
+            if not base.is_dir():
+                complete=False; unreadable+=1; continue
+            for root,dirs,files in os.walk(base,followlinks=False,onerror=onerror):
+                self.runtime.check()
+                dirs[:]=[d for d in dirs if self.allowed(Path(root)/d)]
+                if pattern=='python-projects':
+                    if markers.intersection(files) or any(f.endswith('.py') for f in files): matches.append(root)
+                else:
+                    for name in dirs+files:
+                        q=Path(root)/name
+                        if pattern.casefold() in name.casefold() and self.allowed(q): matches.append(str(q))
+                scanned+=len(dirs)+len(files)
+                if scanned>=20000 or len(matches)>=100 or time.monotonic()-started>=3:
+                    complete=False; break
+            if not complete: break
+        return {'matches':matches[:100],'complete':complete,'scope':'configured roots only','unreadable_roots_or_directories':unreadable,
+                'criteria':'Python file or project marker' if pattern=='python-projects' else 'name contains '+pattern}
     def allowed(self, p):
         try: self.path(str(p)); return True
         except (PermissionError,OSError): return False
@@ -113,6 +139,7 @@ class Filesystem:
         result=self.move(source,destination); result.pop('_inverse',None); return result
 
     def register(self, registry):
+        registry.register(Tool('files.search','Bounded name or Python-project search within configured roots',{'pattern':{'type':str}},Risk.READ_ONLY,self.search_roots))
         req=lambda t,**kw:{"type":t,**kw}
         specs=[
             ('inspect',{'path':req(str)},Risk.READ_ONLY,None),

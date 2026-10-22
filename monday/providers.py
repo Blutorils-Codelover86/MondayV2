@@ -1,7 +1,7 @@
 """Optional model advice has no execution capability."""
 from typing import Protocol
 from pathlib import Path
-import ipaddress, json, os, sys
+import ipaddress, json, os, sys, threading, time
 from urllib.parse import urlsplit
 from urllib.request import Request, build_opener, ProxyHandler, HTTPRedirectHandler
 
@@ -16,24 +16,46 @@ class DecisionProvider(Protocol):
     def choose(self,state:str,candidates:dict[str,str])->str|None: ...
 
 class LayaProvider:
-    def __init__(self,cfg,runtime): self.cfg,self.runtime=cfg,runtime
+    def __init__(self,cfg,runtime): self.cfg,self.runtime=cfg,runtime; self.last_status="unavailable"
     def choose(self,state,candidates):
-        if not self.cfg.laya_path or not Path(self.cfg.laya_path).is_dir() or len(candidates)>10: return None
+        self.last_status='unavailable'
+        if not self.cfg.laya_path or not Path(self.cfg.laya_path).is_dir(): return None
+        self.last_status='invalid'
+        if len(candidates)>10: return None
         try:
             payload=json.dumps({'path':self.cfg.laya_path,'state':state[:8000],'candidates':candidates})
             result=self.runtime.run([sys.executable,'-m','monday.laya_worker'],timeout=30,input_text=payload)
             answer=json.loads(result['stdout'])
             value=answer.get('choice')
-            return value if value in candidates else None
-        except Exception: return None
+            self.last_status='selected' if isinstance(value,str) and value in candidates else 'invalid'
+            return value if self.last_status=='selected' else None
+        except Exception:
+            self.last_status='failed'; return None
 
 class LocalReasoner(Protocol):
+    def request(self,prompt:str)->dict|None: ...
     def interpret(self,objective:str,tools:list[dict])->dict|None: ...
     def summarize(self,objective:str,evidence:list[dict])->str|None: ...
 
 class OllamaReasoner:
-    def __init__(self,cfg): self.cfg=cfg
+    def __init__(self,cfg,runtime=None): self.cfg,self.runtime=cfg,runtime
     def request(self,prompt):
+        if self.runtime is None: return self._request(prompt)
+        # A stopped inference can finish its bounded HTTP wait, but its output is discarded.
+        self.runtime.check()
+        result=[]; finished=threading.Event()
+        def work():
+            try: result.append(self._request(prompt))
+            except Exception: result.append(None)
+            finally: finished.set()
+        threading.Thread(target=work,daemon=True).start()
+        until=time.monotonic()+28
+        while not finished.wait(.05):
+            self.runtime.check()
+            if time.monotonic()>until: return None
+        self.runtime.check()
+        return result[0] if result else None
+    def _request(self,prompt):
         if not self.cfg.ollama_model: return None
         try:
             url=urlsplit(self.cfg.ollama_url)
@@ -41,14 +63,17 @@ class OllamaReasoner:
             if not local or url.scheme not in ('http','https') or url.username or url.password or url.query or url.fragment: return None
             # Only explicit existing model; never invoke pull. Loopback server only.
             with urlopen(self.cfg.ollama_url+'/api/tags',timeout=2) as r:
-                tags=json.load(r)
+                raw=r.read(65537)
+                if len(raw)>65536: return None
+                tags=json.loads(raw)
             if self.cfg.ollama_model not in [m['name'] for m in tags.get('models',[])]: return None
             body=json.dumps({'model':self.cfg.ollama_model,'stream':False,'keep_alive':0,
                              'format':'json','options':{'temperature':0,'num_ctx':2048,'num_predict':256},'prompt':prompt}).encode()
             with urlopen(Request(self.cfg.ollama_url+'/api/generate',data=body,headers={'Content-Type':'application/json'}),timeout=25) as r:
                 data=r.read(65537)
             if len(data)>65536: return None
-            return json.loads(json.loads(data)['response'])
+            parsed=json.loads(json.loads(data)['response'])
+            return parsed if isinstance(parsed,dict) else None
         except Exception: return None
     def interpret(self,objective,tools):
         descriptions=[{'name':t['name'],'description':t['description'],'schema':t['schema']} for t in tools]

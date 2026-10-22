@@ -178,19 +178,21 @@ Research chooses only search/read actions. A summarizer receives evidence throug
 output-only interface and cannot execute tools. Without a successful model summary, the
 response contains labelled source excerpts and returns PARTIAL. Lexical checks on model
 citations/quotes are conservative and are not semantic proof; generated summaries also stay
-PARTIAL. This version does not promise arbitrary factual questions can be answered well.
+PARTIAL. Ordinary questions use the local language model without tools; answers are labelled as not externally verified. Explicit search/documentation requests retain the evidence path.
 
-Ollama is opt-in and uses only an already installed model:
+Ollama defaults to an **already installed** `gemma3:1b` at `http://127.0.0.1:11434`:
 
 ```bash
-MONDAY_MODEL=qwen2.5-coder:0.5b monday "tell me about Unix"
+monday "Explain recursion"
+MONDAY_MODEL=gemma3:1b monday "Explain my RAM usage"
+# Set MONDAY_MODEL= to disable local inference; MONDAY never downloads weights.
 ```
 
 It checks `/api/tags`, never pulls a model, caps context/output, and requests immediate
 unload (`keep_alive: 0`). Network/model/malformed-output failures fall back. Natural-language
 proposals still face the normal gateway and approvals.
 
-Laya is opt-in behind `DecisionProvider`, used only for bounded search-candidate selection.
+Laya is opt-in behind `DecisionProvider`: it selects execute/clarify for typed action candidates and chooses bounded research candidates. It never generates prose or grants execution permission. Without a local checkpoint, deterministic recipes remain available.
 Set `MONDAY_LAYA_PATH` to a **complete local checkpoint directory** and install the optional
 Python dependency separately if wanted. The worker sets Hugging Face/Transformers offline,
 uses `laya.load(local_path)` and `Agent.predict`, validates the selected candidate, runs in a
@@ -198,8 +200,8 @@ killable timed subprocess, and releases model RAM when finished. It never uses `
 which can download checkpoints on first use. Confidence never grants permission. This
 implementation trades repeated load latency for bounded memory and reliable cancellation.
 Ollama transport is restricted to loopback, ignores environment HTTP proxies and refuses redirects.
-The existing Laya package API was inspected; a real inference was not attempted under the
-current RAM pressure.
+No live Laya or Gemma inference was available in the cloud validation environment.
+See [local language and desktop gateway](docs/LOCAL_COMPANION.md) for architecture, configuration, verification and limitations.
 
 ## Tests and measurements
 
