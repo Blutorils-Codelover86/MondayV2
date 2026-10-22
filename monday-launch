@@ -1,3 +1,4 @@
 #!/bin/sh
-cd /home/blu/Projects/MondayV2 || exit 1
-exec /home/blu/Projects/MondayV2/.venv/bin/python -m monday "$@"
+project_dir=$(CDPATH= cd -- "$(dirname -- "$(readlink -f -- "$0")")" && pwd) || exit 1
+cd "$project_dir" || exit 1
+exec "$project_dir/.venv/bin/python" -m monday "$@"

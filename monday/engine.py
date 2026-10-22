@@ -4,6 +4,7 @@ from pathlib import Path
 from .models import Action, Decision, TaskState, Risk
 from .runtime import Cancelled
 from .research import rank_candidates, best_excerpt, documentation_response, is_documentation
+from .conversation import classify, followup, outcome
 
 class Interpreter:
     def __init__(self,cfg,registry,reasoner=None): self.cfg,self.registry,self.reasoner=cfg,registry,reasoner
@@ -19,6 +20,25 @@ class Interpreter:
                 self.registry.validate(parts[1],args)
                 return {'kind':'action','action':Action(parts[1],args)}
             except (ValueError,TypeError) as e: return {'kind':'question','question':str(e)}
+        conversation=classify(s)
+        if conversation: return conversation
+        # Questions take precedence over diagnostic keywords; research only searches/reads.
+        if re.match(r'^(?:what (?:is|are)|who |how (?:does|do)|why is|tell me about|explain )',low) and not re.match(r"why (?:isn't|is not) .+ building",low) and not re.search(r'\b(difference|differences|compare|differentiate)\b',low):
+            if re.search(r'\b(it|that|this)\b',low): return {'kind':'followup'}
+            query=re.sub(r'^(?:what (?:is|are) |tell me about |explain )','',s,flags=re.I).rstrip('?')
+            return {'kind':'research','query':query,'subjects':[query]}
+        if re.match(r'^(?:i think|i was|i said|could we|can we|should i|can i)\b',low):
+            return {'kind':'question','question':'Are you asking for an explanation or an action? Name a concrete target for an action.'}
+        # Explicit app/window commands outrank metric words in application titles.
+        m=re.fullmatch(r'(?:open|launch|start) (.+)',s,re.I)
+        if m:
+            target=m[1]
+            if target.startswith(('https://','http://')): return {'kind':'action','action':Action('browser.open',{'url':target})}
+            if target.startswith(('/','~','.')): return {'kind':'action','action':Action('desktop.open_file',{'path':str(Path(target).expanduser().absolute())})}
+            return {'kind':'launch','app':target}
+        m=re.fullmatch(r'(focus|close) (?:window )?(.+)',s,re.I)
+        if m and not re.fullmatch(r'close (?:process )?\d+',s,re.I):
+            return {'kind':'window','operation':m[1].lower(),'target':m[2]}
         vocabulary=('official','documentation','storage','temperature','battery')
         def correct(match):
             word=match.group(0); candidates=difflib.get_close_matches(word.casefold(),vocabulary,n=1,cutoff=.85)
@@ -44,14 +64,10 @@ class Interpreter:
         if re.search(r'\b(process|processes)\b',low):
             m=re.search(r'(?:find|search) (?:process(?:es)? )?(.+)',s,re.I)
             return {'kind':'action','action':Action('process.search',{'query':m[1] if m else ''})}
+        if low.rstrip('?') in ('list windows','show windows','what windows are open'):
+            return {'kind':'action','action':Action('desktop.windows')}
         m=re.fullmatch(r'(?:list|show) (?:files(?: in)? )?(.+)',s,re.I)
         if m and (m[1].startswith(('/','~','.'))): return {'kind':'action','action':Action('fs.list',{'path':str(Path(m[1]).expanduser().absolute())})}
-        m=re.fullmatch(r'(?:open|launch|start) (.+)',s,re.I)
-        if m:
-            target=m[1]
-            if target.startswith(('https://','http://')): return {'kind':'action','action':Action('browser.open',{'url':target})}
-            if target.startswith(('/','~','.')): return {'kind':'action','action':Action('desktop.open_file',{'path':str(Path(target).expanduser().absolute())})}
-            return {'kind':'launch','app':target}
         m=re.fullmatch(r'get (.+?) ready',s,re.I)
         if m: return {'kind':'project','name':m[1],'operation':'ready'}
         m=re.search(r"(?:why (?:isn't|is not) |build |test |inspect project |git status )(.*?)(?: building\??)?$",s,re.I)
@@ -76,7 +92,7 @@ class Interpreter:
                 if proposal.get('question'): return {'kind':'question','question':str(proposal['question'])}
                 try:
                     self.registry.validate(proposal['tool'],proposal['arguments'])
-                    return {'kind':'action','action':Action(proposal['tool'],proposal['arguments'])}
+                    return {'kind':'question','question':'A model suggested '+proposal['tool']+'; confirm a concrete request using tool '+proposal['tool']+' '+json.dumps(proposal['arguments'])+'. No action has run.'}
                 except (ValueError,KeyError,TypeError): pass
         if len(s.split())>=2 and not re.match(r'(?:do|make|change|fix|set|enable|disable|delete|remove|create|write|copy|move|rename|send|buy|pay|update|run|restart|stop|terminate|kill|install|uninstall|open|launch|close|start)\b',low):
             return {'kind':'research','query':s,'subjects':[s]}
@@ -107,6 +123,7 @@ class DecisionEngine:
                 return done('Opening was requested; the visible result could not be verified.', 'PARTIAL')
             return done("Couldn't complete the objective: "+o.error, (o.data or {}).get('status','FAILED') if isinstance(o.data,dict) else 'FAILED')
         kind=ctx['kind']
+        if kind=='conversation': return done(ctx['reply'])
         if kind=='question': return done(ctx['question'],'NEEDS_CLARIFICATION')
         if kind=='action':
             a=ctx['action']
@@ -138,6 +155,16 @@ class DecisionEngine:
             if not state.latest('app.discover'): return act('app.discover')
             if not state.latest('app.launch'): return act('app.launch',{'app':ctx['app']})
             return done(self.describe(state.latest('app.launch')))
+        if kind=='window':
+            if not state.latest('desktop.windows'): return act('desktop.windows')
+            windows=state.latest('desktop.windows').data['windows']; target=ctx['target'].casefold()
+            matches=[w for w in windows if target in (str(w.get('address',w.get('id',''))).casefold(),w.get('title','').casefold(),w.get('class','').casefold())]
+            if not matches:
+                matches=[w for w in windows if target in w.get('title','').casefold() or target in w.get('class','').casefold()]
+            if len(matches)!=1: return done('Which window? '+('Several match; specify a title or observed ID.' if matches else 'No observed window matches that target.'),'NEEDS_CLARIFICATION')
+            tool='desktop.'+ctx['operation']
+            if not state.latest(tool): return act(tool,{'window_id':str(matches[0].get('address',matches[0].get('id')))})
+            return done('Window '+ctx['operation']+' was verified for '+ctx['target']+'.')
         if kind=='service':
             if not state.latest('service.inspect'): return act('service.inspect',{'name':ctx['name']})
             if ctx['restart'] and not state.latest('service.restart'): return act('service.restart',{'name':ctx['name']},'Restart only the named service after approval')
@@ -206,7 +233,8 @@ class DecisionEngine:
         if not evidence: return done('No readable evidence was found.','FAILED')
         documentation=documentation_response(ctx['query'],evidence[0])
         if documentation: return done(documentation,'SUCCESS')
-        answer=self.reasoner.summarize(state.objective,evidence) if self.reasoner else None
+        try: answer=self.reasoner.summarize(state.objective,evidence) if self.reasoner else None
+        except Exception: answer=None
         if answer: return done(answer)
         excerpts=[]
         for e in evidence:
@@ -230,6 +258,10 @@ class DecisionEngine:
 
     def describe(self,o):
         d=o.data; t=o.tool
+        if t=='desktop.windows':
+            titles=[w.get('title') or w.get('class') or str(w.get('address',w.get('id'))) for w in d['windows']]
+            return f"Observed {len(titles)} windows: "+(', '.join(titles[:8]) or 'none')+'.'
+        if t in ('desktop.focus','desktop.close'): return 'Window '+d['operation']+' was verified for '+d['window_id']+'.'
         if t=='system.ram': return f"RAM is {d['percent']:.0f}% used; {d['available']/2**30:.2f} GiB is available."
         if t=='system.cpu': return f"CPU is {d['percent']:.0f}% busy; load averages are "+', '.join(f'{x:.2f}' for x in d['load'])+'.'
         if t=='system.gpu':
@@ -257,7 +289,9 @@ class DecisionEngine:
         if t=='system.uptime': return f"Uptime is {d['seconds']/3600:.1f} hours."
         if t=='app.launch': return d['app']+' has a running process; launch was observed.'
         if t.startswith('fs.'):
-            if t=='fs.list': return f"Found {len(d['entries'])} entries in {d['path']}."
+            if t=='fs.list':
+                names=[e.get('name','') if isinstance(e,dict) else str(e) for e in d['entries'][:8]]
+                return f"Found {len(d['entries'])} entries in {d['path']}."+(' Entries: '+', '.join(names)+'.' if names else '')
             if t=='fs.search': return f"Found {len(d['matches'])} matching paths."
             if t=='fs.read': return ' '.join(d['content'].split())[:500] or 'File is empty.'
             return t.split('.')[1].capitalize()+' verified for '+d.get('path','the requested path')+'.'
@@ -273,14 +307,22 @@ class DecisionEngine:
         return t+' inspected: '+json.dumps(d,default=str,separators=(',',':'))[:500]
 
 class Agent:
-    def __init__(self,engine,gateway,audit,progress=None): self.engine,self.gateway,self.audit,self.progress=engine,gateway,audit,progress
+    def __init__(self,engine,gateway,audit,progress=None):
+        self.engine,self.gateway,self.audit,self.progress=engine,gateway,audit,progress
+        self.last_task=None
     def run(self,objective):
         state=TaskState(objective)
         try:
+            self.gateway.runtime.check()
+            state.context.update(self.engine.interpreter.understand(objective))
             for _ in range(self.engine.cfg.max_steps):
                 self.gateway.runtime.check()
                 if time.monotonic()-state.started>self.engine.cfg.task_timeout: raise TimeoutError('Task time budget exhausted')
-                d=self.engine.next(state); state.decisions.append(d)
+                if state.context.get('kind')=='followup':
+                    status,response=('PLANNED','Text-only follow-up planned; no tools or model invoked.') if self.gateway.dry_run else followup(objective,self.last_task,self.engine.reasoner)
+                    d=Decision(objective,state.snapshot(),None,'Explain selected prior observations','','No new execution',response=response,status=status)
+                else: d=self.engine.next(state)
+                state.decisions.append(d)
                 if d.next_action is None:
                     state.status,state.response=d.status,d.response; break
                 # Reject repeated identical action after success: provider loops never run indefinitely.
@@ -299,5 +341,11 @@ class Agent:
         except Exception as e:
             state.status,state.response='FAILED',str(e)
         state.response=' '.join(state.response.split())
+        if state.status in ('FAILED','BLOCKED','CANCELLED') and state.observations:
+            count=sum(o.verified and o.ok for o in state.observations)
+            state.response+=f' ({count} earlier action(s) verified; requested goal incomplete.)'
         self.audit.save(state)
+        if state.context.get('kind') not in ('conversation','followup','question'):
+            from copy import deepcopy
+            self.last_task=deepcopy(state)
         return state

@@ -6,7 +6,7 @@ import QtQuick.Layouts
 Window {
     id: root
     title: "MONDAY companion"
-    width: 372
+    width: expanded ? 372 : 110
     height: expanded ? panel.height + 88 : 90
     color: "transparent"
     visible: true
@@ -25,6 +25,12 @@ Window {
     property bool polling: false
     property int failures: 0
     property bool blink: false
+    onWidthChanged: geometryUpdate.restart()
+    onHeightChanged: geometryUpdate.restart()
+    Timer {
+        id: geometryUpdate; interval: 120
+        onTriggered: root.request("POST", "/geometry", {width: Math.round(root.width), height: Math.round(root.height)})
+    }
     readonly property bool busy: state.phase === "busy" || state.phase === "approval"
     readonly property string accent: state.phase === "approval" ? "#ffc785" : state.phase === "error" ? "#ff929d" : "#98d4ff"
 
@@ -82,6 +88,7 @@ Window {
             previewTimer.start()
         } else {
             request("POST", "/ready", {})
+            geometryUpdate.restart()
             poll.start()
         }
     }

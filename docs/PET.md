@@ -15,7 +15,13 @@ ears, mouth or extra body parts. The command box sits above it.
 Click the circle to collapse or reveal the command box. Drag the header, or press and
 hold the circle to move it using the compositor's supported system-move API. The window
 requests always-on-top behavior; placement and stacking ultimately depend on Wayland's
-compositor. MONDAY does not change window-manager settings or bypass its restrictions.
+compositor. On Hyprland, it finds the window by the owned frontend PID and exact companion
+title, then floats, pins and places that window using scoped IPC dispatchers. It reads monitor
+scale, rotation and reserved panel areas. Opening/collapsing the bubble preserves the bot's
+lower right corner after dragging. The collapsed surface is only 110 pixels wide. IPC requests
+are bounded and observations must confirm floating/pinning/geometry; failures are exposed by
+`monday pet status`. No config files or global window rules are changed. Other compositors keep
+their existing Qt/native behavior.
 
 Type a command and press Enter or the arrow. While working, the arrow becomes Stop.
 Risky actions display their concrete proposal and **Approve / Deny** buttons; only the
@@ -23,6 +29,10 @@ pending action's approval ID is accepted. Closing the pet or stopping the task c
 pending approval. Requests are processed one at a time. The `explain` link shows the
 previous task's result and decision reasons. Quick buttons inspect RAM, CPU, storage
 and GPU. Responses and approvals are rendered as plain text.
+You can also type `hi`, `who are you?`, `hi, who are you?`, `what does that mean?`, or
+`why did it fail?`. The pet retains its last task across worker instances; greetings do not
+erase that context. Questions about MONDAY do not search the web, and follow-ups never retry
+an action or grant approval. New factual topics still require actual source evidence.
 
 ## More useful commands
 

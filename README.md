@@ -5,6 +5,14 @@ It observes the machine, chooses the next structured tool action, asks when requ
 executes through one gateway, verifies results, and keeps an explainable task record.
 Normal responses are one line. Unsupported or unverified outcomes stay incomplete.
 
+Greetings and identity questions (including `hi, who are you?`) are handled locally without
+web searches or tool execution. The REPL and pet remember their last task for `what does that
+mean?`, `explain more` and `why did it fail?`. Evidence follow-ups reuse verified sources only;
+unavailable/unsupported local synthesis yields a labelled PARTIAL excerpt. Context lasts for the
+current REPL/pet session; separate CLI invocations do not silently inherit task history.
+An ambiguous `do it`, `yes` or `open it` cannot supply an action target or permission. Unknown
+model tool proposals require an explicit concrete request before execution.
+
 ## Start
 
 The isolated environment and editable CLI are already set up on this machine:
@@ -16,10 +24,15 @@ monday "check my ram"
 monday "my computer is slow"
 monday plan "restart bluetooth"
 monday
+monday run "hi, who are you?"
+monday "list windows"
+monday "focus window Firefox"
+monday "close window Firefox"  # asks for approval; ambiguous titles are not guessed
 ```
 
 Without activation, use `/home/blu/Projects/MondayV2/monday-launch "check my ram"`.
 This launcher selects V2 without replacing the old MONDAY command.
+The launcher resolves its own location, so it also works from another checkout or through a symlink.
 
 Other commands: `monday explain`, `status`, `history`, `tools`, `doctor`, `config`,
 `undo`, `stop`, `resume`. `run "objective"` also works. `--json` shows internal records.
@@ -184,6 +197,7 @@ uses `laya.load(local_path)` and `Agent.predict`, validates the selected candida
 killable timed subprocess, and releases model RAM when finished. It never uses `Router`,
 which can download checkpoints on first use. Confidence never grants permission. This
 implementation trades repeated load latency for bounded memory and reliable cancellation.
+Ollama transport is restricted to loopback, ignores environment HTTP proxies and refuses redirects.
 The existing Laya package API was inspected; a real inference was not attempted under the
 current RAM pressure.
 
@@ -209,3 +223,10 @@ Run `monday pet on` for the native circular companion with a command box above i
 pet to toggle the box and drag its header to move it. It offers sustained resource-pressure
 hints and keeps normal approvals for risky actions. See [PET.md](docs/PET.md) for controls,
 new command examples, GPU telemetry and measured resource use.
+
+On Hyprland, the pet uses `hyprctl` for its own observed QML process/window only: floating,
+pinning across workspaces, scaled monitor placement, and resizing while keeping the bot's lower
+right corner stable. The collapsed window shrinks to the bot, rather than leaving a wide transparent
+input surface. No compositor configuration or global window rules are edited. `monday pet status`
+reports placement failures honestly. See [the V2 fix report](docs/CONVERSATION_HYPRLAND.md) for
+cloud test coverage, the two environment skips and the remaining need for a real Hyprland/Qt smoke test.

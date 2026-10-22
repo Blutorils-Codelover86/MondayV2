@@ -5,6 +5,9 @@ from monday.redact import redact
 
 @pytest.fixture(autouse=True)
 def env(cfg,monkeypatch):
+    # Exercise the normal-user CLI contract even when CI itself runs in a root container.
+    # test_no_root below still explicitly exercises the production root refusal.
+    monkeypatch.setattr('os.geteuid',lambda:1000)
     monkeypatch.setenv('MONDAY_DATA_DIR',str(cfg.data_dir)); monkeypatch.setenv('MONDAY_ROOTS',str(cfg.roots[0])); monkeypatch.setenv('MONDAY_MODEL',''); monkeypatch.setenv('MONDAY_LAYA_PATH',''); monkeypatch.setenv('MONDAY_SEARCH_PROVIDER','wikipedia')
 
 @pytest.mark.parametrize('args',[['check my ram'],['run','check my ram'],['plan','check my ram'],['status'],['doctor'],['config'],['tools'],['history'],['explain']])
