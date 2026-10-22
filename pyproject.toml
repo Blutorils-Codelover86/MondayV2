@@ -9,6 +9,7 @@ requires-python = ">=3.11"
 dependencies = ["psutil>=5.9"]
 [project.optional-dependencies]
 test = ["pytest>=7"]
+test-ui = ["pytest>=7", "PySide6-Essentials>=6.8"]
 laya = ["laya>=0.3.22"]
 [project.scripts]
 monday = "monday.cli:main"

@@ -1,8 +1,16 @@
 """Optional model advice has no execution capability."""
 from typing import Protocol
 from pathlib import Path
-import json, os, sys
-from urllib.request import Request, urlopen
+import ipaddress, json, os, sys
+from urllib.parse import urlsplit
+from urllib.request import Request, build_opener, ProxyHandler, HTTPRedirectHandler
+
+class _NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self,*args): raise ValueError('Local inference cannot follow redirects')
+
+def urlopen(request,timeout):
+    # Keep local prompts out of environment-configured HTTP proxies and redirects.
+    return build_opener(ProxyHandler({}),_NoRedirect()).open(request,timeout=timeout)
 
 class DecisionProvider(Protocol):
     def choose(self,state:str,candidates:dict[str,str])->str|None: ...
@@ -28,6 +36,9 @@ class OllamaReasoner:
     def request(self,prompt):
         if not self.cfg.ollama_model: return None
         try:
+            url=urlsplit(self.cfg.ollama_url)
+            local=url.hostname=='localhost' or ipaddress.ip_address(url.hostname or '').is_loopback
+            if not local or url.scheme not in ('http','https') or url.username or url.password or url.query or url.fragment: return None
             # Only explicit existing model; never invoke pull. Loopback server only.
             with urlopen(self.cfg.ollama_url+'/api/tags',timeout=2) as r:
                 tags=json.load(r)
@@ -49,8 +60,8 @@ class OllamaReasoner:
         if not isinstance(result,dict): return None
         ids={e['id']:e for e in evidence}; cited=result.get('citations',[]); quotes=result.get('quotes',[])
         answer=result.get('answer')
-        if not isinstance(answer,str) or not isinstance(cited,list) or not cited or any(i not in ids for i in cited): return None
-        if not quotes or not all(isinstance(q,str) and q and any(q in ids[i]['text'] for i in cited) for q in quotes): return None
+        if not isinstance(answer,str) or not isinstance(cited,list) or not cited or any(not isinstance(i,str) or i not in ids for i in cited): return None
+        if not isinstance(quotes,list) or not quotes or not all(isinstance(q,str) and q and any(q in ids[i]['text'] for i in cited) for q in quotes): return None
         # Conservative lexical support. Not a semantic proof; unsupported output falls back to excerpts.
         words=lambda s:set(w.lower() for w in __import__('re').findall(r'\b\w+\b',s) if len(w)>3)
         aw=words(answer); qw=words(' '.join(quotes))

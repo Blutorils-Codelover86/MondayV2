@@ -77,6 +77,9 @@ class ActionGateway:
         except Cancelled as e:
             self.audit.emit("cancelled", tool=action.tool)
             return Observation(action.tool, False, error=str(e), data={"status":"CANCELLED"})
+        except PermissionError as e:
+            self.audit.emit("blocked", tool=action.tool, error=str(e))
+            return Observation(action.tool, False, error=f"Policy blocked the action: {e}", data={"status":"BLOCKED"})
         except Exception as e:
             self.audit.emit("failure", tool=action.tool, error=f"{type(e).__name__}: {e}")
             return Observation(action.tool, False, error=f"{type(e).__name__}: {e}")

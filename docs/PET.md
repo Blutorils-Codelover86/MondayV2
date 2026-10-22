@@ -8,14 +8,27 @@ monday pet status
 
 `pet on` starts a native Qt QML companion using the already-installed Qt runtime. The
 minimal mascot has a circular dark steel body and two rounded rectangular, softly
-blue eyes, inspired by Gipsy Danger's restrained industrial styling. It blinks; amber
-eyes indicate an approval request and pink eyes indicate a failed task. No antenna,
+blue eyes, inspired by Gipsy Danger's restrained industrial styling. It blinks and breathes gently;
+its eyes track pointer movement over the bot, widen for attentive input, scan asymmetrically while
+thinking, curve into green crescents after success, turn amber for approval/partial outcomes, and
+slant pink for errors. A lost local connection dims the face and polling continues to recover.
+No microphone or voice activation is involved. No antenna,
 ears, mouth or extra body parts. The command box sits above it.
 
 Click the circle to collapse or reveal the command box. Drag the header, or press and
 hold the circle to move it using the compositor's supported system-move API. The window
 requests always-on-top behavior; placement and stacking ultimately depend on Wayland's
-compositor. MONDAY does not change window-manager settings or bypass its restrictions.
+compositor. On Hyprland, it finds the window by the owned frontend PID and exact companion
+title, then floats, pins and places that window using scoped IPC dispatchers. It reads monitor
+scale, rotation and reserved panel areas. Opening/collapsing the bubble preserves the bot's
+lower right corner after dragging. The expanded window is 400 pixels wide and content-height;
+the collapsed surface is 116 by 104 logical pixels. Fixed size constraints and independently
+requested dimensions prevent the stretched tile feedback seen in the reported screenshot. A
+two-second scoped check restores floating/pinning/geometry if needed, without resetting a
+correctly sized window's dragged position. IPC requests
+are bounded and observations must confirm floating/pinning/geometry; failures are exposed by
+`monday pet status`. No config files or global window rules are changed. Other compositors keep
+their existing Qt/native behavior.
 
 Type a command and press Enter or the arrow. While working, the arrow becomes Stop.
 Risky actions display their concrete proposal and **Approve / Deny** buttons; only the
@@ -23,6 +36,10 @@ pending action's approval ID is accepted. Closing the pet or stopping the task c
 pending approval. Requests are processed one at a time. The `explain` link shows the
 previous task's result and decision reasons. Quick buttons inspect RAM, CPU, storage
 and GPU. Responses and approvals are rendered as plain text.
+You can also type `hi`, `who are you?`, `hi, who are you?`, `what does that mean?`, or
+`why did it fail?`. The pet retains its last task across worker instances; greetings do not
+erase that context. Questions about MONDAY do not search the web, and follow-ups never retry
+an action or grant approval. New factual topics still require actual source evidence.
 
 ## More useful commands
 

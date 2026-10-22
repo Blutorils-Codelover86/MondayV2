@@ -87,6 +87,7 @@ class DesktopController:
             return {'windows':[{'id':x} for x in r['stdout'].splitlines()],'backend':backend}
         raise NotImplementedError('Window inspection is unavailable on this compositor; KDE needs optional kdotool')
     def window(self,window_id,operation):
+        if operation not in ('focus','close'): raise ValueError('Unsupported window operation')
         before=self.windows(); backend=before['backend']
         ids=[str(x.get('address',x.get('id'))) for x in before['windows']]
         if window_id not in ids: raise ValueError('Window is not in observed inventory')
@@ -100,7 +101,8 @@ class DesktopController:
             return not any(str(w.get('address',w.get('id')))==args['window_id'] for w in self.windows()['windows'])
         if result['backend']=='hyprland':
             import json
-            r=self.runtime.run(['hyprctl','-j','activewindow']); return json.loads(r['stdout']).get('address')==args['window_id']
+            r=self.runtime.run(['hyprctl','-j','activewindow'])
+            return r['exit_code']==0 and json.loads(r['stdout']).get('address')==args['window_id']
         r=self.runtime.run(['kdotool','getactivewindow']); return r['stdout'].strip()==args['window_id']
     def open(self,target):
         # xdg-open has no browser observation API: never call navigation verified from exit alone.

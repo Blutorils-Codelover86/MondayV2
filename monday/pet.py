@@ -36,18 +36,27 @@ class PetService:
         self.approval_event=threading.Event(); self.approval_answer=False; self.agent=None
         self.alert=None; self.monitoring=True; self.ui_ready=False; self.last_seen=time.monotonic()
         self.watch=HealthWatch(); self.history=[]; self.task_id=''; self.ui_pid=None
+        self.last_task=None
+        self.ui_geometry=(400,320)
+        self.desktop={'backend':'native','configured':False,'detail':''}
+        self.task_status='IDLE'
     def snapshot(self):
         with self.lock:
             self.last_seen=time.monotonic()
             return {'phase':self.phase,'response':self.response,'progress':self.progress,
                     'approval':self.approval,'alert':self.alert,'monitoring':self.monitoring,
-                    'ready':self.ui_ready,'task_id':self.task_id,'history':self.history[-5:]}
+                    'ready':self.ui_ready,'task_id':self.task_id,'history':self.history[-5:],'desktop':self.desktop,'status':self.task_status}
+    def geometry(self,width,height):
+        if type(width) is not int or type(height) is not int or not (90<=width<=1200 and 80<=height<=1200):
+            raise ValueError('Invalid pet geometry')
+        with self.lock: self.ui_geometry=(width,height)
     def submit(self,objective):
         if not isinstance(objective,str) or not objective.strip() or len(objective)>4000:
             raise ValueError('Enter a command of 1–4000 characters')
         with self.lock:
             if self.phase in ('busy','approval'): raise ValueError('A task is already running')
             self.phase='busy'; self.progress='Understanding your request'; self.response=''; self.approval=None
+            self.task_status='RUNNING'
             self.task_id=uuid.uuid4().hex; self.alert=None; self.task_cancel.clear()
             self.work_thread=threading.Thread(target=self.work,args=(objective.strip(),),daemon=True)
             self.work_thread.start()
@@ -79,6 +88,7 @@ class PetService:
         response='Task did not complete.'; status='FAILED'
         try:
             agent=build(self.cfg,self.approve)
+            agent.last_task=self.last_task
             with self.lock: self.agent=agent
             agent.progress=self.progress_update
             if self.closed.is_set() or self.task_cancel.is_set(): agent.gateway.runtime.stop.set()
@@ -92,12 +102,14 @@ class PetService:
                 status='SUCCESS'
             else:
                 result=agent.run(objective); response,status=result.response,result.status
+                self.last_task=agent.last_task
         except Exception as e: response=str(e)
         finally:
             # Publish terminal state and clear the active agent together. A new submission
             # cannot race the previous worker's cleanup and lose its cancellation handle.
             with self.lock:
                 self.response=response; self.phase='done' if status in ('SUCCESS','PARTIAL','PLANNED') else 'error'
+                self.task_status=status
                 self.progress=''; self.agent=None; self.approval=None
                 self.history.append({'objective':objective,'response':response,'status':status})
                 self.history=self.history[-5:]
@@ -163,6 +175,7 @@ class PetHandler(BaseHTTPRequestHandler):
                 if not service.monitoring: service.alert=None
             elif self.path=='/dismiss': service.alert=None
             elif self.path=='/ready': service.ui_ready=True
+            elif self.path=='/geometry': service.geometry(data.get('width'),data.get('height'))
             elif self.path=='/shutdown': service.shutdown()
             else: return self.send(404,{'error':'Unknown endpoint'})
             self.send(200,service.snapshot())
@@ -201,13 +214,24 @@ def serve(cfg):
         wrapper_path=folder/'Frontend.qml'
         fd=os.open(wrapper_path,os.O_WRONLY|os.O_CREAT|os.O_TRUNC,0o600)
         with os.fdopen(fd,'w') as file: file.write(wrapper)
-        frontend=subprocess.Popen([qml,'--transparent','-f',str(wrapper_path)],start_new_session=True)
+        env=dict(os.environ)
+        if os.getenv('HYPRLAND_INSTANCE_SIGNATURE') and os.getenv('WAYLAND_DISPLAY'):
+            env.setdefault('QT_QPA_PLATFORM','wayland')
+        frontend=subprocess.Popen([qml,'--transparent','-f',str(wrapper_path)],start_new_session=True,env=env)
         service.ui_pid=frontend.pid
+        from .hyprland import PetPlacement
+        placement=PetPlacement(frontend.pid)
+        placement_checked=0.0
         def stop(*_): service.shutdown()
         signal.signal(signal.SIGTERM,stop); signal.signal(signal.SIGINT,stop)
         try:
             while not service.closed.wait(.2):
                 if frontend.poll() is not None: break
+                now=time.monotonic()
+                force=now-placement_checked>=2
+                if placement.enabled and (placement.geometry!=service.ui_geometry or force):
+                    service.desktop=placement.sync(*service.ui_geometry,force=force)
+                    placement_checked=now
         finally:
             service.shutdown(); server.shutdown(); server.server_close()
             if frontend.poll() is None:
@@ -223,7 +247,9 @@ def command(words,cfg=None):
     cfg=cfg or Config(); operation=words[0] if words else 'status'
     if operation=='serve': return serve(cfg)
     if operation=='status':
-        state=session_request(cfg); print('MONDAY pet is on.' if state and state.get('ready') else 'MONDAY pet is off.'); return 0
+        state=session_request(cfg); print('MONDAY pet is on.' if state and state.get('ready') else 'MONDAY pet is off.')
+        if state and state.get('desktop',{}).get('detail'): print(state['desktop']['detail'])
+        return 0
     if operation=='off':
         state=session_request(cfg,'/shutdown',{})
         print('MONDAY pet is off.' if state else 'MONDAY pet is already off.'); return 0
