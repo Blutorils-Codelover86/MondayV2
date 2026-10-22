@@ -18,7 +18,7 @@ def no_external_connections(monkeypatch):
 @pytest.fixture
 def cfg(tmp_path):
     root=tmp_path/'workspace'; root.mkdir()
-    return Config(roots=(root,),data_dir=tmp_path/'state',ollama_model='',laya_path='',search_url='',search_provider='wikipedia')
+    return Config(roots=(root,),data_dir=tmp_path/'state',web_fallback=False,ollama_model='',laya_path='',search_url='',search_provider='wikipedia')
 
 @pytest.fixture
 def agent(cfg): return build(cfg)

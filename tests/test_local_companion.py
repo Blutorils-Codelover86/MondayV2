@@ -97,7 +97,7 @@ def test_chat_context_is_bounded_and_survives_followup(cfg):
     a=local_agent(cfg); a.engine.reasoner.request.return_value={'answer':'Recursion solves a problem using smaller instances of itself.'}
     a.run('Explain recursion.')
     a.run('explain more')
-    assert 'Recursion' in a.engine.reasoner.request.call_args.args[0]
+    assert 'Recursion' in json.dumps(a.engine.reasoner.request.call_args.args[0])
     assert len(a.language.turns)==2 and a.last_task is None
     for i in range(10): a.language.remember('x'*1000,'y'*1000)
     assert len(a.language.turns)==4 and all(len(t['user'])<=800 for t in a.language.turns)
@@ -114,7 +114,8 @@ def test_invalid_or_unavailable_language_falls_back(cfg,reply):
 def test_model_cannot_expand_explicit_intent(cfg,proposal):
     a=local_agent(cfg); a.engine.reasoner.interpret.side_effect=None; a.engine.reasoner.interpret.return_value=proposal
     s=a.run('Explain my RAM usage.')
-    assert s.status=='NEEDS_CLARIFICATION' and not s.observations
+    assert s.status=='SUCCESS' and [o.tool for o in s.observations]==['system.ram']
+    assert 'explicit user request' in a.audit.path.read_text()
 
 
 @pytest.mark.parametrize('choice',['clarify','yes',{'tool':'fs.delete'}])
@@ -220,14 +221,14 @@ def test_model_exceptions_are_honest_fallbacks(cfg,error):
     assert s.status=='SUCCESS' and s.observations[0].verified
 
 
-def test_gemma_then_laya_then_gateway_order(cfg):
+def test_explicit_intent_then_laya_then_gateway_order(cfg):
     a=local_agent(cfg); calls=[]
     a.engine.reasoner.interpret.side_effect=lambda *args:calls.append('gemma') or {'tool':'system.ram','arguments':{}}
     a.engine.provider=Mock(); a.engine.provider.choose.side_effect=lambda *args:calls.append('laya') or 'execute'
     perform=a.gateway.perform
     a.gateway.perform=lambda action:calls.append('gateway') or perform(action)
     assert a.run('Explain my RAM usage.').status=='SUCCESS'
-    assert calls==['gemma','laya','gateway']
+    assert calls==['laya','gateway']
 
 
 def test_gemma_launch_is_typed_and_model_cannot_supply_shell(cfg):
@@ -315,10 +316,10 @@ def test_clarified_action_replaces_chat_followup_target(cfg):
     a.run('Explain recursion.')
     a.engine.reasoner.interpret.side_effect=None
     a.engine.reasoner.interpret.return_value={'tool':'command.run','arguments':{'argv':['sh']}}
-    assert a.run('Explain my RAM usage.').status=='NEEDS_CLARIFICATION'
+    assert a.run('Explain my RAM usage.').status=='SUCCESS'
     a.engine.reasoner.request.reset_mock()
     s=a.run('explain that')
-    assert not s.observations and 'No task action ran' in s.response
+    assert not s.observations and 'RAM' in s.response
     a.engine.reasoner.request.assert_not_called()
 
 
