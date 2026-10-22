@@ -217,6 +217,26 @@ def test_collapse_resize_preserves_dragged_position_and_bottom_edge(placement):
     assert c.window['at']==[-1000,470] and c.window['size']==[372,90]
     assert 'dispatch pin' not in c.calls[-2][1]
 
+def test_periodic_verification_keeps_user_drag_position_without_dispatching(placement):
+    p,c=placement;p.sync(400,297);c.window['at']=[-900,200]
+    c.calls.clear()
+    assert p.sync(400,297,force=True)['configured']
+    assert c.window['at']==[-900,200]
+    assert not any(args[0]=='--batch' for args in c.calls)
+
+def test_retiling_is_repaired_even_when_requested_geometry_is_cached(placement):
+    p,c=placement;p.sync(400,297)
+    c.window.update(floating=False,size=[917,1020],at=[0,0])
+    assert p.sync(400,297,force=True)['configured']
+    assert c.window['floating'] and c.window['size']==[400,297]
+    assert c.window['at']==[-428,499]
+
+def test_monitor_changes_recover_an_offscreen_pet(placement):
+    p,c=placement;p.sync(400,297)
+    c.window['at']=[10000,10000]
+    assert p.sync(400,297,force=True)['configured']
+    assert c.window['at']==[-400,527]
+
 def test_collapsed_surface_does_not_leave_a_wide_invisible_input_area(placement):
     p,c=placement;p.sync(372,360);c.window['at']=[-1000,200]
     # Qt may have already applied its new size before the IPC event is processed.

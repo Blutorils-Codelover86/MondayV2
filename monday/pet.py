@@ -37,14 +37,15 @@ class PetService:
         self.alert=None; self.monitoring=True; self.ui_ready=False; self.last_seen=time.monotonic()
         self.watch=HealthWatch(); self.history=[]; self.task_id=''; self.ui_pid=None
         self.last_task=None
-        self.ui_geometry=(372,360)
+        self.ui_geometry=(400,320)
         self.desktop={'backend':'native','configured':False,'detail':''}
+        self.task_status='IDLE'
     def snapshot(self):
         with self.lock:
             self.last_seen=time.monotonic()
             return {'phase':self.phase,'response':self.response,'progress':self.progress,
                     'approval':self.approval,'alert':self.alert,'monitoring':self.monitoring,
-                    'ready':self.ui_ready,'task_id':self.task_id,'history':self.history[-5:],'desktop':self.desktop}
+                    'ready':self.ui_ready,'task_id':self.task_id,'history':self.history[-5:],'desktop':self.desktop,'status':self.task_status}
     def geometry(self,width,height):
         if type(width) is not int or type(height) is not int or not (90<=width<=1200 and 80<=height<=1200):
             raise ValueError('Invalid pet geometry')
@@ -55,6 +56,7 @@ class PetService:
         with self.lock:
             if self.phase in ('busy','approval'): raise ValueError('A task is already running')
             self.phase='busy'; self.progress='Understanding your request'; self.response=''; self.approval=None
+            self.task_status='RUNNING'
             self.task_id=uuid.uuid4().hex; self.alert=None; self.task_cancel.clear()
             self.work_thread=threading.Thread(target=self.work,args=(objective.strip(),),daemon=True)
             self.work_thread.start()
@@ -107,6 +109,7 @@ class PetService:
             # cannot race the previous worker's cleanup and lose its cancellation handle.
             with self.lock:
                 self.response=response; self.phase='done' if status in ('SUCCESS','PARTIAL','PLANNED') else 'error'
+                self.task_status=status
                 self.progress=''; self.agent=None; self.approval=None
                 self.history.append({'objective':objective,'response':response,'status':status})
                 self.history=self.history[-5:]
@@ -218,14 +221,17 @@ def serve(cfg):
         service.ui_pid=frontend.pid
         from .hyprland import PetPlacement
         placement=PetPlacement(frontend.pid)
-        placement_started=time.monotonic()
+        placement_checked=0.0
         def stop(*_): service.shutdown()
         signal.signal(signal.SIGTERM,stop); signal.signal(signal.SIGINT,stop)
         try:
             while not service.closed.wait(.2):
                 if frontend.poll() is not None: break
-                if placement.enabled and (placement.geometry is not None or time.monotonic()-placement_started<5):
-                    service.desktop=placement.sync(*service.ui_geometry)
+                now=time.monotonic()
+                force=now-placement_checked>=2
+                if placement.enabled and (placement.geometry!=service.ui_geometry or force):
+                    service.desktop=placement.sync(*service.ui_geometry,force=force)
+                    placement_checked=now
         finally:
             service.shutdown(); server.shutdown(); server.server_close()
             if frontend.poll() is None:

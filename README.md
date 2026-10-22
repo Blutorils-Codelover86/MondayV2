@@ -230,3 +230,12 @@ right corner stable. The collapsed window shrinks to the bot, rather than leavin
 input surface. No compositor configuration or global window rules are edited. `monday pet status`
 reports placement failures honestly. See [the V2 fix report](docs/CONVERSATION_HYPRLAND.md) for
 cloud test coverage, the two environment skips and the remaining need for a real Hyprland/Qt smoke test.
+
+The companion now uses a compact normal window with fixed, content-derived size constraints.
+Compositor-assigned tile dimensions never feed back into its requested geometry. A periodic scoped
+check restores floating geometry if Hyprland re-tiles it, while preserving intentional dragging.
+The pet has distinct idle, attentive, curious, thinking, success, approval, warning, error and offline
+expressions. Results are selectable and scrollable. See [the window follow-up report](docs/PET_WINDOW_FIX.md).
+
+Optional **developer-only** real Qt integration (not required to run the existing QML frontend):
+`pip install -e '.[test-ui]'`, then `python -m pytest -q tests/test_pet_window.py`.

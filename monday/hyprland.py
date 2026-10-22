@@ -22,8 +22,8 @@ class PetPlacement:
             raise RuntimeError(result.stderr.strip() or result.stdout.strip() or 'Hyprland IPC failed')
         return result.stdout
 
-    def sync(self,width,height):
-        if not self.enabled or self.geometry==(width,height): return self.status
+    def sync(self,width,height,force=False):
+        if not self.enabled or (self.geometry==(width,height) and not force): return self.status
         if type(width) is not int or type(height) is not int or not (90<=width<=1200 and 80<=height<=1200):
             raise ValueError('Invalid pet geometry')
         key=(width,height)
@@ -33,6 +33,7 @@ class PetPlacement:
             clients=json.loads(self.call('-j','clients'))
             owned=[c for c in clients if c.get('pid')==self.pid and c.get('title')=='MONDAY companion']
             if len(owned)!=1:
+                self.status['configured']=False
                 self.status['detail']='Waiting for the owned pet window to map.'
                 return self.status
             window=owned[0]; address=window.get('address','')
@@ -48,7 +49,13 @@ class PetPlacement:
             x0,y0=int(monitor.get('x',0)+left),int(monitor.get('y',0)+top)
             w,h=min(width,max(90,mw-left-right)),min(height,max(80,mh-top-bottom))
             xmax,ymax=int(monitor.get('x',0)+mw-right-w),int(monitor.get('y',0)+mh-bottom-h)
-            first=self.address!=address
+            at=window.get('at',[])
+            in_bounds=len(at)==2 and x0<=at[0]<=xmax and y0<=at[1]<=ymax
+            if self.address==address and self.geometry==(width,height) and window.get('floating') and window.get('pinned') and window.get('size')==[w,h] and in_bounds:
+                self.attempts.pop(key,None)
+                self.status.update(configured=True,detail='Owned pet floats and is pinned across workspaces.')
+                return self.status
+            first=self.address!=address or not window.get('floating')
             if first: x,y=xmax-28,ymax-28
             else:
                 x,y=window['at']

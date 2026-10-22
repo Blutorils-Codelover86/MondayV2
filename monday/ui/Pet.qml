@@ -6,11 +6,18 @@ import QtQuick.Layouts
 Window {
     id: root
     title: "MONDAY companion"
-    width: expanded ? 372 : 110
-    height: expanded ? panel.height + 88 : 90
+    // Requested geometry is content-derived, never read back from WM-assigned width/height.
+    readonly property int requestedWidth: expanded ? 400 : 116
+    readonly property int requestedHeight: expanded ? Math.ceil(panel.height + 104) : 104
+    width: requestedWidth
+    height: requestedHeight
+    minimumWidth: requestedWidth
+    maximumWidth: requestedWidth
+    minimumHeight: requestedHeight
+    maximumHeight: requestedHeight
     color: "transparent"
     visible: true
-    flags: Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
+    flags: Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
     x: Screen.width - width - 28
     y: Screen.height - height - 64
     property bool expanded: true
@@ -25,12 +32,20 @@ Window {
     property bool polling: false
     property int failures: 0
     property bool blink: false
-    onWidthChanged: geometryUpdate.restart()
-    onHeightChanged: geometryUpdate.restart()
+    property bool connected: true
+    property bool celebrating: false
+    readonly property string expression: !connected ? "offline" : state.approval ? "approval" :
+        busy ? "thinking" : state.status === "CANCELLED" || state.status === "BLOCKED" ? "warning" :
+        localError || state.phase === "error" ? "error" :
+        state.alert || state.status === "PARTIAL" ? "warning" : celebrating ? "success" :
+        input.activeFocus ? "listening" : petMouse.containsMouse ? "curious" : "idle"
+    onRequestedWidthChanged: geometryUpdate.restart()
+    onRequestedHeightChanged: geometryUpdate.restart()
     Timer {
         id: geometryUpdate; interval: 120
-        onTriggered: root.request("POST", "/geometry", {width: Math.round(root.width), height: Math.round(root.height)})
+        onTriggered: root.request("POST", "/geometry", {width: root.requestedWidth, height: root.requestedHeight})
     }
+    Timer { id: celebration; interval: 2800; onTriggered: root.celebrating = false }
     readonly property bool busy: state.phase === "busy" || state.phase === "approval"
     readonly property string accent: state.phase === "approval" ? "#ffc785" : state.phase === "error" ? "#ff929d" : "#98d4ff"
 
@@ -45,9 +60,14 @@ Window {
             if (path === "/state") polling = false
             if (xhr.status === 200) {
                 failures = 0
+                root.connected = true
                 try {
                     let previousAlert = root.state.alert ? root.state.alert.key : ""
-                    root.state = JSON.parse(xhr.responseText)
+                    let previousResponse = root.state.response
+                    if (path !== "/geometry") root.state = JSON.parse(xhr.responseText)
+                    if (root.state.phase === "done" && root.state.status === "SUCCESS" && root.state.response !== previousResponse) {
+                        root.celebrating = true; celebration.restart()
+                    }
                     if (root.state.alert && root.state.alert.key !== previousAlert) root.expanded = true
                 } catch (e) { root.localError = "Could not read MONDAY's response." }
                 if (root.smoke && path === "/state" && !root.smokeSent && root.state.ready) {
@@ -64,7 +84,7 @@ Window {
                 try { root.localError = JSON.parse(xhr.responseText).error } catch (e) { root.localError = "MONDAY could not handle that request." }
             } else {
                 failures += 1
-                if (failures > 4) { root.localError = "Connection lost. Restart with monday pet on."; poll.stop() }
+                if (failures > 4) { root.connected = false; root.localError = "Connection lost; retrying locally…" }
             }
         }
         xhr.send(method === "POST" ? JSON.stringify(payload || {}) : "")
@@ -77,6 +97,13 @@ Window {
         root.state = {phase: "busy", response: "", progress: "Understanding your request", monitoring: state.monitoring}
         request("POST", "/command", {objective: command})
     }
+    function focusInput() { root.requestActivate(); input.forceActiveFocus() }
+    function togglePanel() {
+        if (root.state.approval) { root.expanded = true; return }
+        root.expanded = !root.expanded
+        if (root.expanded) Qt.callLater(root.focusInput)
+    }
+    Shortcut { sequence: "Escape"; onActivated: { if (!root.busy) root.expanded = false } }
     Component.onCompleted: {
         for (let i = 0; i < Qt.application.arguments.length; ++i) {
             if (Qt.application.arguments[i].indexOf("http://127.0.0.1:") === 0) {
@@ -101,7 +128,7 @@ Window {
             Qt.quit()
         })
     }
-    Timer { id: poll; interval: 800; repeat: true; onTriggered: { if (!root.polling) { root.polling = true; root.request("GET", "/state", null) } } }
+    Timer { id: poll; objectName: "pollTimer"; interval: 800; repeat: true; onTriggered: { if (!root.polling) { root.polling = true; root.request("GET", "/state", null) } } }
     Timer {
         id: previewTimer; interval: 600
         onTriggered: root.contentItem.grabToImage(function(result) {
@@ -117,7 +144,7 @@ Window {
     Rectangle {
         id: panel
         visible: root.expanded
-        width: parent.width - 12
+        width: root.requestedWidth - 12
         x: 6; y: 4
         height: contents.implicitHeight + 26
         radius: 20
@@ -142,16 +169,24 @@ Window {
                     ToolTip.visible: hovered; ToolTip.text: root.state.monitoring ? "Pause proactive health hints" : "Resume proactive health hints"
                     onClicked: root.request("POST", "/watch", {enabled: !root.state.monitoring})
                 }
-                ToolButton { text: "−"; implicitWidth: 24; implicitHeight: 26; palette.buttonText: "#9da9bd"; onClicked: root.expanded = false }
+                ToolButton { objectName: "collapseButton"; text: "−"; enabled: !root.state.approval; implicitWidth: 24; implicitHeight: 26; palette.buttonText: "#9da9bd"; onClicked: root.togglePanel() }
                 ToolButton { text: "×"; implicitWidth: 24; implicitHeight: 26; palette.buttonText: "#9da9bd"; onClicked: { root.request("POST", "/shutdown", {}, function() { Qt.quit() }) } }
             }
-            Text {
+            ScrollView {
+                id: responseScroll
                 Layout.fillWidth: true
-                text: root.localError || (root.state.approval ? "This needs your approval." : root.busy ? root.state.progress : root.state.response || "Ready when you are.")
-                color: root.localError || root.state.phase === "error" ? "#ffadb5" : "#e4e9f3"
-                textFormat: Text.PlainText; wrapMode: Text.Wrap
-                font.pixelSize: 13; lineHeight: 1.25
-                maximumLineCount: 5; elide: Text.ElideRight
+                Layout.preferredHeight: Math.max(42, Math.min(164, responseText.implicitHeight))
+                contentWidth: availableWidth
+                TextArea {
+                    id: responseText; objectName: "responseText"
+                    width: responseScroll.availableWidth
+                    text: root.localError || (root.state.approval ? "This needs your approval." : root.busy ? root.state.progress : root.state.response || "Ready when you are.")
+                    color: root.localError || root.state.phase === "error" ? "#ffadb5" : "#e4e9f3"
+                    textFormat: TextEdit.PlainText; wrapMode: TextEdit.Wrap
+                    readOnly: true; selectByMouse: true; padding: 0
+                    font.pixelSize: 13
+                    background: Item {}
+                }
             }
             ScrollView {
                 visible: !!root.state.approval
@@ -165,8 +200,8 @@ Window {
             }
             RowLayout {
                 visible: !!root.state.approval; spacing: 8
-                Button { text: "Approve"; onClicked: root.request("POST", "/approve", {id: root.state.approval.id, accepted: true}) }
-                Button { text: "Deny"; onClicked: root.request("POST", "/approve", {id: root.state.approval.id, accepted: false}) }
+                Button { objectName: "approveButton"; text: "Approve"; onClicked: root.request("POST", "/approve", {id: root.state.approval.id, accepted: true}) }
+                Button { objectName: "denyButton"; text: "Deny"; onClicked: root.request("POST", "/approve", {id: root.state.approval.id, accepted: false}) }
             }
             Rectangle {
                 visible: !!root.state.alert
@@ -187,6 +222,7 @@ Window {
                 color: "#080c13"; border.color: input.activeFocus ? "#6c93b7" : "#2c3444"
                 TextField {
                     id: input
+                    objectName: "commandInput"
                     anchors { left: parent.left; right: send.left; top: parent.top; bottom: parent.bottom; leftMargin: 8 }
                     placeholderText: "Tell me what you need…"
                     color: "#edf3ff"; placeholderTextColor: "#758299"
@@ -197,6 +233,7 @@ Window {
                 }
                 ToolButton {
                     id: send
+                    objectName: "sendButton"
                     anchors { right: parent.right; verticalCenter: parent.verticalCenter; rightMargin: 4 }
                     text: root.busy ? "■" : "↑"
                     implicitWidth: 34; implicitHeight: 34
@@ -225,41 +262,20 @@ Window {
             }
         }
     }
-    Rectangle { visible: root.expanded; width: 14; height: 14; radius: 2; rotation: 45; color: "#11151d"; x: root.width - 72; y: panel.y + panel.height - 7 }
+    Rectangle { visible: root.expanded; width: 14; height: 14; radius: 2; rotation: 45; color: "#11151d"; x: root.requestedWidth - 72; y: panel.y + panel.height - 7 }
     Item {
         id: bot
-        width: 88; height: 80
-        anchors.right: parent.right; anchors.rightMargin: 17
-        anchors.bottom: parent.bottom; anchors.bottomMargin: 3
-        Rectangle {
-            id: body
-            anchors.horizontalCenter: parent.horizontalCenter
-            y: 3; width: 72; height: 72; radius: 36
-            gradient: Gradient {
-                GradientStop { position: 0; color: "#263442" }
-                GradientStop { position: 0.55; color: "#111922" }
-                GradientStop { position: 1; color: "#090e15" }
-            }
-            border.color: "#718698"; border.width: 1
-            property color eyeColor: root.state.phase === "approval" ? "#ffd6a0" : root.state.phase === "error" ? "#ffb6bb" : "#d0efff"
-            Row {
-                anchors.centerIn: parent
-                anchors.verticalCenterOffset: -1
-                spacing: 9
-                Repeater {
-                    model: 2
-                    Rectangle {
-                        width: 17; height: root.blink ? 2 : 11; radius: root.blink ? 1 : 4
-                        color: body.eyeColor
-                        Behavior on height { NumberAnimation { duration: 65 } }
-                        Behavior on color { ColorAnimation { duration: 180 } }
-                    }
-                }
-            }
-        }
+        width: 96; height: 96
+        x: root.requestedWidth - width - 10
+        y: root.requestedHeight - height - 2
+        PetFace { id: face; objectName: "petFace"; anchors.fill: parent; mood: root.expression; blinking: root.blink }
         MouseArea {
+            id: petMouse; objectName: "petMouse"
             anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-            onClicked: { root.expanded = !root.expanded; if (root.expanded) input.forceActiveFocus() }
+            hoverEnabled: true
+            onPositionChanged: function(mouse) { face.lookX = (mouse.x / width - 0.5) * 4; face.lookY = (mouse.y / height - 0.5) * 3 }
+            onExited: { face.lookX = 0; face.lookY = 0 }
+            onClicked: root.togglePanel()
             onPressAndHold: root.startSystemMove()
         }
     }
